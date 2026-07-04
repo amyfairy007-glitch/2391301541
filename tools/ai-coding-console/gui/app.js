@@ -678,8 +678,40 @@ function renderContextStrip() {
   const task = getTaskDetailTask() || getSelectedTask();
   const summary = project?.statusSummary || parseProjectStatus(project?.statusOutput, project || {});
   const gitDirty = summary?.gitDirty === null ? "未知" : summary.gitDirty ? "dirty" : "clean";
+
+  if (!task) {
+    return `
+      <section class="panel hero-panel">
+        <div class="panel-head">
+          <div>
+            <span class="panel-kicker">Workspace</span>
+            <h3>${project ? escapeHTML(project.displayName || project.id) : "未选择项目"}</h3>
+          </div>
+          <div class="panel-actions">
+            <button class="ghost-btn" onclick="window.consoleWorkbench.refreshCurrentContext()">刷新</button>
+            <button class="ghost-btn" onclick="window.consoleWorkbench.toggleProjectDrawer()">项目详情</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="hero-empty">
+            <div class="context-compact">
+              <span class="panel-kicker">工作区</span>
+              <h3>当前项目：${project ? escapeHTML(project.displayName || project.id) : "未选择项目"}</h3>
+            </div>
+            <p>还没有任务，或者尚未选择任务。先从一句想法开始，创建一个 Task，右侧工作区就会进入真正的任务流程。</p>
+            <div class="button-row">
+              <button class="primary-btn" onclick="window.consoleWorkbench.openCreateTaskModal()">+ 新建任务</button>
+              <button class="ghost-btn" onclick="window.consoleWorkbench.toggleProjectDrawer()">项目详情</button>
+            </div>
+            <div class="hero-sample">“我想梳理这个项目结构……”</div>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   return `
-    <div class="context-strip">
+    <div class="context-strip compact">
       <div class="context-title">
         <div>
           <span class="rail-kicker">Workspace</span>
@@ -691,13 +723,13 @@ function renderContextStrip() {
           <button class="ghost-btn" onclick="window.consoleWorkbench.showBannerNotice()">C.6 提示</button>
         </div>
       </div>
-      <div class="context-grid">
-        <div class="context-item"><span>项目路径</span><strong>${project?.rootPath ? escapeHTML(project.rootPath) : "暂无"}</strong></div>
-        <div class="context-item"><span>当前 Task</span><strong>${task ? escapeHTML(task.title) : "暂无 Task"}</strong></div>
-        <div class="context-item"><span>Task 状态</span><strong>${task?.status ? escapeHTML(task.status) : "暂无"}</strong></div>
-        <div class="context-item"><span>当前 Agent</span><strong>${task?.currentAgent ? escapeHTML(task.currentAgent) : "暂无"}</strong></div>
-        <div class="context-item"><span>当前 Capability / SOP</span><strong>${task?.currentSopStep ? escapeHTML(task.currentSopStep) : "暂无"}</strong></div>
-        <div class="context-item"><span>Git</span><strong>${summary?.gitBranch ? `branch: ${escapeHTML(summary.gitBranch)} · ${escapeHTML(gitDirty)}` : escapeHTML(gitDirty)}</strong></div>
+      <div class="context-pill-row">
+        <div class="context-pill"><span>项目</span><strong>${escapeHTML(project?.displayName || project?.id || "未选择")}</strong></div>
+        <div class="context-pill"><span>任务</span><strong>${escapeHTML(task.title)}</strong></div>
+        <div class="context-pill"><span>状态</span><strong>${escapeHTML(task?.status || "暂无")}</strong></div>
+        <div class="context-pill"><span>能力</span><strong>${task?.currentSopStep ? escapeHTML(task.currentSopStep) : "未选择"}</strong></div>
+        <div class="context-pill"><span>Agent</span><strong>${task?.currentAgent ? escapeHTML(task.currentAgent) : "未选择"}</strong></div>
+        <div class="context-pill"><span>Git</span><strong>${summary?.gitBranch ? `branch: ${escapeHTML(summary.gitBranch)} · ${escapeHTML(gitDirty)}` : escapeHTML(gitDirty)}</strong></div>
       </div>
     </div>
   `;
@@ -724,8 +756,8 @@ function renderWorkspaceTab() {
       <div class="panel-body">
         ${empty ? `
           <div class="empty-state roomy">
-            <strong>当前项目还没有选中的 Task。</strong>
-            <span>请从中栏选择一个 Task，或者先创建一个新任务。</span>
+            <strong>请选择一个 Task，或者先创建新任务。</strong>
+            <span>当前项目还没有进入具体工作对象。右侧会在你选择 Task 后切换为任务工作流。</span>
           </div>
         ` : `
           <div class="work-summary-grid">
@@ -973,6 +1005,15 @@ function renderApprovalsTab() {
 }
 
 function renderTabs() {
+  const task = getTaskDetailTask() || getSelectedTask();
+  if (!task) {
+    return `
+      <div class="workspace-landing">
+        ${renderWorkspaceTab()}
+      </div>
+    `;
+  }
+
   const tabs = [
     ["workbench", "工作区"],
     ["prompt", "Prompt 与 SOP"],
@@ -1007,29 +1048,29 @@ function renderProjectDrawer() {
       <div class="drawer-head">
         <div>
           <span class="rail-kicker">Project Detail</span>
-          <h3>${project ? escapeHTML(project.displayName || project.id) : "项目详情"}</h3>
+          <h3>${project ? escapeHTML(project.displayName || project.id) : "Project Detail"}</h3>
         </div>
-        <button class="icon-btn" onclick="window.consoleWorkbench.toggleProjectDrawer()">×</button>
+        <button class="icon-btn" onclick="window.consoleWorkbench.toggleProjectDrawer()">x</button>
       </div>
       <div class="drawer-body">
         <div class="detail-card">
-          <span>项目路径</span>
-          <strong>${project?.rootPath ? escapeHTML(project.rootPath) : "暂无"}</strong>
+          <span>Project Path</span>
+          <strong>${project?.rootPath ? escapeHTML(project.rootPath) : "N/A"}</strong>
         </div>
         <div class="detail-grid">
-          <div class="detail-card"><span>Git 分支</span><strong>${summary?.gitBranch ? escapeHTML(summary.gitBranch) : "暂无"}</strong></div>
-          <div class="detail-card"><span>Git dirty</span><strong>${summary?.gitDirty === null ? "暂无" : summary.gitDirty ? "dirty" : "clean"}</strong></div>
-          <div class="detail-card"><span>Git remote</span><strong>${summary?.gitRemote ? escapeHTML(summary.gitRemote) : "暂无"}</strong></div>
-          <div class="detail-card"><span>AGENTS.md</span><strong>${summary?.agentsMd ? "存在" : "暂无"}</strong></div>
-          <div class="detail-card"><span>.ai / AI Memory</span><strong>${summary?.aiMemory ? "存在" : "暂无"}</strong></div>
-          <div class="detail-card"><span>项目状态</span><strong>${escapeHTML(summary?.projectState || "unknown")}</strong></div>
+          <div class="detail-card"><span>Git Branch</span><strong>${summary?.gitBranch ? escapeHTML(summary.gitBranch) : "N/A"}</strong></div>
+          <div class="detail-card"><span>Git Dirty</span><strong>${summary?.gitDirty === null ? "N/A" : summary.gitDirty ? "dirty" : "clean"}</strong></div>
+          <div class="detail-card"><span>Git Remote</span><strong>${summary?.gitRemote ? escapeHTML(summary.gitRemote) : "N/A"}</strong></div>
+          <div class="detail-card"><span>AGENTS.md</span><strong>${summary?.agentsMd ? "present" : "N/A"}</strong></div>
+          <div class="detail-card"><span>.ai / AI Memory</span><strong>${summary?.aiMemory ? "present" : "N/A"}</strong></div>
+          <div class="detail-card"><span>Project State</span><strong>${escapeHTML(summary?.projectState || "unknown")}</strong></div>
         </div>
         <div class="detail-card full">
-          <span>注册信息</span>
-          <strong>${project?.addedAt ? escapeHTML(formatDate(project.addedAt)) : "暂无"}</strong>
+          <span>Registered At</span>
+          <strong>${project?.addedAt ? escapeHTML(formatDate(project.addedAt)) : "N/A"}</strong>
         </div>
         <div class="detail-note">
-          Git、AGENTS.md、`.ai` 仅做结构化展示，不在首页铺开，也不重建 CLI 状态逻辑。
+          Git, AGENTS.md, and .ai are summarized here without rebuilding CLI state logic.
         </div>
       </div>
     </aside>
