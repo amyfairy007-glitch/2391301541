@@ -1,0 +1,8 @@
+{
+  "$schema": "个人AI工具库全局配置 v1",
+  "workspaceRoots": [],
+  "projectScan": {
+    "maxDepth": 3,
+    "exclude": ["node_modules", ".git", "dist"]
+  }
+}
