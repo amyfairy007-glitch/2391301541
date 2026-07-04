@@ -36,7 +36,7 @@
 个人AI工具库/
 ├─ config/
 ├─ knowledge/
-├─ runs/
+├─ data/
 └─ tools/
 ```
 
@@ -53,7 +53,7 @@ config/
 knowledge/
 = SOP、规则、流程、经验、项目分析资料
 
-runs/
+data/
 = 每次真实任务运行产生的记录、结果、交接
 
 tools/
@@ -90,7 +90,7 @@ tools/
 运行记录必须写入：
 
 ```text
-runs/
+data/
 ```
 
 不得把真实任务记录、session 输出、最终结果写入 `tools/`。
@@ -220,7 +220,7 @@ agent：plan
 允许修改：否
 职责：分析美国市场某功能影响范围
 输出：涉及文件、风险、建议下一步
-记录位置：runs/JIRA-123/sessions/C0.md
+记录位置：data/JIRA-123/sessions/C0.md
 ```
 
 如涉及 Playwright：
@@ -233,7 +233,7 @@ agent：plan 或受限 build
 允许修改：仅限 Playwright 脚本范围
 职责：按现有 Playwright SOP 执行采集或验证
 SOP：<现有 Playwright SOP 路径>
-记录位置：runs/JIRA-123/sessions/C1.md
+记录位置：data/JIRA-123/sessions/C1.md
 ```
 
 ────────────────
@@ -315,7 +315,7 @@ SOP：<现有 Playwright SOP 路径>
 建议结构：
 
 ```text
-runs/
+data/
 └─ <task-id>/
    ├─ task.md
    ├─ task.json
@@ -406,7 +406,7 @@ C1：
 5. C0、C1 都保存对应真实 OpenCode session id。
 6. 用户可通过 OpenCode Web 或原生 session tree 查看 C0、C1 的真实执行过程。
 7. 不依赖桌面前台可见性验证。
-8. C0、C1 的结果与交接写入 `runs/TEST-MULTI-001/`。
+8. C0、C1 的结果与交接写入 `data/TEST-MULTI-001/`。
 9. C1 直接读取并执行现有 Playwright SOP，不重新生成 Playwright 流程。
 10. 失败任务只重试自身。
 11. 总控能读取 C0、C1 的结果并做汇总。

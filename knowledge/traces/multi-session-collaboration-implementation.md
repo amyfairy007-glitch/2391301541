@@ -51,7 +51,7 @@
 个人AI工具库/
 ├─ config/
 ├─ knowledge/
-├─ runs/
+├─ data/
 └─ tools/
 ```
 
@@ -67,7 +67,7 @@ tools/
 运行过程数据必须写入：
 
 ```text
-runs/
+data/
 ```
 
 配置必须写入：
@@ -138,12 +138,12 @@ unknown
 
 ## 五、任务与运行记录设计
 
-每个协同任务在 `runs/` 下建立独立目录。
+每个协同任务在 `data/` 下建立独立目录。
 
 建议格式：
 
 ```text
-runs/
+data/
 └─ <task-id>/
    ├─ task.md
    ├─ board.md
@@ -344,7 +344,7 @@ task session 初始任务必须自动带入：
 8. 任选一个 session，能查看详细信息。
 9. 模拟一个失败 session，验证 retry 只重试该 session。
 10. 总控可以汇总 C0、C1 的结果。
-11. 所有记录均写入 `runs/TEST-MULTI-001/`。
+11. 所有记录均写入 `data/TEST-MULTI-001/`。
 12. 不依赖桌面前台可见性校验。
 
 最终输出必须包含：
