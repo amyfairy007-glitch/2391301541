@@ -38,10 +38,7 @@
 │   └── global.json
 ├── data/
 │   └── ai-coding-console/
-│       ├── projects-manifest.json      ← 从 data/ 根迁移
-│       ├── tasks/                      ← 新增（空目录）
-│       ├── board/                      ← 新增（空目录）
-│       └── reports/                    ← 新增（空目录）
+│       └── projects-manifest.json      ← 从 data/ 根迁移（唯一阶段 A 实体文件）
 ├── knowledge/
 │   ├── flows/
 │   └── traces/
@@ -54,6 +51,9 @@
     │       └── console.ps1
     ├── init-project-memory/
     └── sync-codex-home/
+```
+
+> `data/ai-coding-console/tasks/` `board/` `reports/` 不在此阶段创建。它们在实际写入首个 Task/Board/Report 时由 CLI 按需创建。
 ```
 
 ---
@@ -138,26 +138,15 @@ data/
 | 职责 | CLI 入口脚本。阶段 A：help 输出 + 命令路由骨架（项目命令组、task 命令组占位） |
 | 为什么不是占位 | `console.ps1 help` 输出各命令的规划说明，为阶段 B/C/D 的开发提供清晰的目标清单。即使当前不执行业务逻辑，help 输出本身就是可用的参考 |
 
-### 5.4 `data/ai-coding-console/tasks/`
+### 5.4 延迟创建的数据目录
 
-| 维度 | 内容 |
-|---|---|
-| 职责 | 所有已创建 Task 的持久化存储。每个 Task 一个子目录 |
-| 为什么不是占位 | 阶段 B 开始后 `task create` 立即写入此目录。空目录表示"暂无 Task"，与 `projects: {}` 同理 — 是合法初始状态 |
+| 目录 | 归属 | 创建时机 | 创建方 |
+|---|---|---|---|
+| `data/ai-coding-console/tasks/` | Task 历史 | 阶段 B 首次 `task create` | `console.ps1` |
+| `data/ai-coding-console/board/` | Markdown board | 阶段 C 首次 `board show` | `console.ps1` |
+| `data/ai-coding-console/reports/` | Task 总结报告 | 阶段 C 首次 `task close` | `console.ps1` |
 
-### 5.5 `data/ai-coding-console/board/`
-
-| 维度 | 内容 |
-|---|---|
-| 职责 | 每个项目的 Markdown board 文件 |
-| 为什么不是占位 | 阶段 C `board show` 命令的输出目的地。board 是控制台的"仪表盘"，不是无意义的目录 |
-
-### 5.6 `data/ai-coding-console/reports/`
-
-| 维度 | 内容 |
-|---|---|
-| 职责 | Task 关闭时的总结报告（Markdown） |
-| 为什么不是占位 | 阶段 C `task close` 的输出目的地。与 tasks/ 不同：tasks/ 存运行中/历史数据，reports/ 存已完成任务的正式结论 |
+**阶段 A 不创建这三个空目录。** Git 无法跟踪空目录，且它们没有阶段 A 可用的业务含义。后续 CLI 实现时必须负责在首次实际写入时自动创建。此原则写入阶段 B/C 的实施计划。
 
 ---
 
@@ -166,7 +155,6 @@ data/
 ```json
 {
   "$schema": "控制台专属配置 v1",
-  "agentType": "opencode",
   "dataDir": "data/ai-coding-console"
 }
 ```
@@ -174,8 +162,7 @@ data/
 | 字段 | 职责 | 为什么现在就需要 |
 |---|---|---|
 | `$schema` | 版本标识 | 供读取方判断格式 |
-| `agentType` | 默认 Agent 适配器类型。当前仅 `"opencode"` | 阶段 A 不接 Agent，但 CLI 骨架需要知道"未来会用哪个 Agent"来输出正确的 help 文本。此字段在阶段 D 成为 dispatch 的默认值 |
-| `dataDir` | 控制台数据根目录的相对路径 | console.ps1 需要知道 tasks/board/reports/ 在哪。绝对路径不便于跨机器同步 |
+| `dataDir` | 控制台数据根目录的相对路径 | console.ps1 需要知道 manifest/tasks/board/reports/ 在哪。绝对路径不便于跨机器同步 |
 
 ### 不放入的字段及理由
 
@@ -195,31 +182,23 @@ data/
 
 ```text
 多项目 AI Coding 桌面控制台 — MVP (阶段 A)
-用法: console.ps1 <command> [args]
+版本: 0.1.0-a
+当前阶段: A — 脚手架与数据层
 
-可用命令:
-  help                          显示本帮助
-  version                       显示版本与当前阶段
+用法: console.ps1 help | version
 
-项目命令（阶段 B 实现）:
-  project list                  列出所有已接入项目
-  project add      --path <路径> 注册新项目
-  project status   --project <名称> 查看项目状态
-  project prompt   --project <名称> 生成项目上下文 Prompt
+已实现命令:
+  help      显示本帮助
+  version   显示版本与当前阶段
 
-任务命令（阶段 C/D 实现）:
-  task create      --project <名称> --desc "..."  创建任务
-  task list        --project <名称>               列出任务
-  task status      --task <id>                    查看任务详情
-  task dispatch    --task <id>                    执行任务（Agent）
-  task approve     --task <id> [--reject]         plan 审批
-  task review      --task <id> [--reject]         final review
-  task close       --task <id>                    关闭任务
-
-看板命令（阶段 C 实现）:
-  board show       --project <名称>               生成项目看板
-
-当前阶段: A — 脚手架与数据层。仅 help/version 可用。
+后续计划命令（未实现，不可调用）:
+  阶段 B (项目登记):
+    project add / list / status / prompt
+  阶段 C (任务管理):
+    task create / list / status / approve / review / close
+    board show
+  阶段 D (Agent 执行):
+    task dispatch
 ```
 
 ### 未知命令
@@ -264,9 +243,6 @@ data/
 2. 创建目录:
    - tools/ai-coding-console/config/
    - tools/ai-coding-console/cli/
-   - data/ai-coding-console/tasks/
-   - data/ai-coding-console/board/
-   - data/ai-coding-console/reports/
 3. 写入文件:
    - tools/ai-coding-console/README.md
    - tools/ai-coding-console/config/console-config.json
@@ -288,10 +264,15 @@ Test-Path tools/ai-coding-console/
 Test-Path tools/ai-coding-console/config/
 Test-Path tools/ai-coding-console/cli/
 Test-Path data/ai-coding-console/
-Test-Path data/ai-coding-console/tasks/
-Test-Path data/ai-coding-console/board/
-Test-Path data/ai-coding-console/reports/
 Test-Path data/ai-coding-console/projects-manifest.json
+
+# 延迟创建目录不存在（阶段 A 不应创建）
+Test-Path data/ai-coding-console/tasks/
+# 预期: False
+Test-Path data/ai-coding-console/board/
+# 预期: False
+Test-Path data/ai-coding-console/reports/
+# 预期: False
 
 # 旧路径不存在
 Test-Path data/projects-manifest.json
@@ -346,16 +327,15 @@ git revert --no-edit HEAD
 |---|---|
 | 1 | `data/projects-manifest.json` 已迁移至 `data/ai-coding-console/`，无残留双份 |
 | 2 | `tools/ai-coding-console/` 完整目录存在（README + config + cli） |
-| 3 | `console-config.json` 为合法 JSON，字段不超出 MVP 范围 |
-| 4 | `console.ps1 help` 可执行并输出命令清单 |
+| 3 | `console-config.json` 为合法 JSON，仅含 `$schema` 和 `dataDir` |
+| 4 | `console.ps1 help` 可执行并输出命令清单（已实现 + 未实现分离） |
 | 5 | `console.ps1` 对未知命令返回明确错误 |
-| 6 | `data/ai-coding-console/tasks/` `board/` `reports/` 存在 |
+| 6 | `data/ai-coding-console/tasks/` `board/` `reports/` 不存在（延迟创建，阶段 A 不创建空目录） |
 | 7 | `README.md:17` 路径已更新 |
 | 8 | `技术路线方案` 中路径已同步 |
 | 9 | 未修改 `AGENTS.md`、`config/global.json`、现有 tools/ |
-| 10 | Git status 干净 |
-
-具备以上 10 项后，可以进入阶段 B（项目登记与状态读取）。
+| 10 | Git status 干净（仅含阶段 A 新增和修改） |
+| 11 | 阶段 B/C 计划中已明确数据目录的按需创建责任 |
 
 ---
 
@@ -370,6 +350,18 @@ git revert --no-edit HEAD
 |---|---|
 | 1 | 技术路线方案（`ai-coding-desktop-console-technical-route-and-mvp-plan.md`）中的路径同步是否可以放到阶段 A 后的专门修订中，还是必须在阶段 A 提交内完成？ |
 | 2 | README 修改范围：仅改 1 行（:17）还是加一句 `tools/ai-coding-console/` 的开发状态说明？ |
+
+---
+
+## 阶段 A 计划修订（2026-07-04）
+
+| # | 修订项 | 内容 |
+|---|---|---|
+| 1 | 空目录 | `tasks/` `board/` `reports/` 不在阶段 A 创建。首次实际写入时由 CLI 按需自动创建 |
+| 2 | console-config.json | 删除 `agentType` 字段（无 Agent Adapter、无读取方、Scope 禁止 Agent 调度） |
+| 3 | console.ps1 help | 命令清单明确分为"已实现"和"未实现"，不可调用命令标注为"未实现" |
+| 4 | 完成标准 | 延迟创建的目录预期不存在，新增第 11 项：按需创建责任已写入后续阶段计划 |
+| 5 | 文档同步 | README + 技术路线方案更新路径；历史文件不修改 |
 
 ---
 
