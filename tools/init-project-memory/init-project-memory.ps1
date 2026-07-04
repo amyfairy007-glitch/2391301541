@@ -36,8 +36,8 @@ function Copy-IfMissing {
 }
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$repoRoot = Resolve-AbsolutePath (Join-Path $scriptRoot '..')
-$templatesRoot = Join-Path $repoRoot 'templates\project-memory'
+$repoRoot = Resolve-AbsolutePath (Join-Path $scriptRoot '..\..')
+$templatesRoot = Join-Path $scriptRoot 'templates'
 
 if (-not (Test-Path -LiteralPath $ProjectPath)) {
     New-Item -ItemType Directory -Path $ProjectPath -Force | Out-Null

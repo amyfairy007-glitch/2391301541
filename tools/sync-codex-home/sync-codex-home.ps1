@@ -54,7 +54,7 @@ function Backup-AndCopy {
 }
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$repoRoot = Resolve-AbsolutePath (Join-Path $scriptRoot '..')
+$repoRoot = Resolve-AbsolutePath (Join-Path $scriptRoot '..\..')
 $codexHomePath = Resolve-AbsolutePath $CodexHome
 
 Ensure-Directory -Path $codexHomePath
@@ -70,7 +70,7 @@ $syncItems = @(
 if ($IncludeConfig) {
     $syncItems += [pscustomobject]@{
         Name        = 'config.toml'
-        Source      = Join-Path $repoRoot 'templates\codex-home\config.toml'
+        Source      = Join-Path $scriptRoot 'config\config.toml'
         Destination = Join-Path $codexHomePath 'config.toml'
     }
 }
