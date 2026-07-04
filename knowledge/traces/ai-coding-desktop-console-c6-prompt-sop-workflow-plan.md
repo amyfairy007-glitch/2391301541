@@ -513,29 +513,40 @@ Agent 只是执行器。更换 Agent 只需改 `agentType` 字段。
 
 ---
 
-## 十六、实施拆分建议
+## 十六、实施拆分建议（修订：全量登记优先）
 
-| 阶段 | 内容 |
-|---|---|
-| 1 | Registry JSON schema + 初始 Seed 数据（手工编写 10-15 条 entry） |
-| 2 | Registry 浏览/搜索 API + GUI 面板 |
-| 3 | Prompt Builder 核心流水线（模糊想法 → 结构化说明 → 推荐 Capability） |
-| 4 | Task SOP 实例化引擎 + SOP 步骤面板 |
-| 5 | 大指令编辑器（Sources 勾选 + Supplement + Preview） |
-| 6 | SOP 步骤状态机 + agentType 字段 |
+```
+1. Capability Registry schema 与全量盘点结果落库
+2. 全量注册现有 Skill / SOP / Script / Prompt Template（15 条）
+3. Registry 校验与来源路径验证
+4. Web Registry 浏览、搜索、筛选
+5. Task 绑定 Capability
+6. Prompt Builder
+7. Task 专属 SOP
+8. 大指令编辑器
+9. 恢复阶段 D OpenCode Adapter
+```
+
+**与旧拆分的关键变化**: 原 step 1 "手工编写 5-10 条 seed data" 已被替换为全量登记。拆分从 6 步扩展为 9 步，增加了 Registry 校验和 Task 绑定。
 
 ---
 
-## 十七、验证方案
+## 十七、验证方案（修订）
 
 ```text
-1. Registry JSON schema 可被 JSON Schema validator 通过
-2. 手工编写 10 条 seed entry，每条的 fields 完整
-3. Prompt Builder 输入 "分析项目结构" → 输出结构化说明草稿
-4. 选择 skill-project-takeover → Task SOP 生成 3-5 步骤
-5. 大编辑器: Sources 可勾选/取消 → Preview 内容正确拼接
-6. SOP 步骤状态: pending → ready → completed
-7. 所有现有 API/CLI 未受影响
+Registry 完整性:
+  1. Registry JSON schema 可被 JSON Schema validator 通过
+  2. 全部 15 条 entry（5 Skill + 2 SOP + 4 Script + 4 Prompt Template）均已登记
+  3. 每条 entry 的 sourcePath 可追溯（built-in 或真实文件路径）
+  4. 高风险/不可执行能力未被隐藏，通过 status/riskLevel/requiresApproval 表达限制
+  5. 历史报告、阶段结果、审计记录未被误注册
+
+功能验证:
+  6. Prompt Builder 输入 "分析项目结构" → 输出结构化说明草稿
+  7. 选择 skill-project-takeover → Task SOP 生成 3-5 步骤
+  8. 大编辑器: Sources 可勾选/取消 → Preview 内容正确拼接
+  9. SOP 步骤状态: pending → ready → completed
+  10. 所有现有 API/CLI 未受影响
 ```
 
 ---
@@ -546,7 +557,7 @@ Agent 只是执行器。更换 Agent 只需改 `agentType` 字段。
 
 | 风险 | 级别 | 说明 |
 |---|---|---|
-| Registry 首次 seed 数据需大量手工编写 | 🟡 中 | 10-15 条 entry，每条 15 字段 |
+| Registry 首次 seed 数据需大量手工编写 | 🟢 低 | **已修订为全量登记**，15 条 entry（5 Skill + 2 SOP + 4 Script + 4 Prompt Template），每条 15 字段 |
 | Prompt Builder 的"自动生成结构化说明"依赖 AI | 🟡 中 | 阶段 C.6 无 Agent，需用规则模板代替 AI 生成 |
 | Task SOP 实例化逻辑复杂 | 🟡 中 | 全局 SOP 是通用叙述，变成具体步骤需要规则引擎 |
 
@@ -555,7 +566,7 @@ Agent 只是执行器。更换 Agent 只需改 `agentType` 字段。
 | # | 事项 |
 |---|---|
 | 1 | Prompt Builder 第一版是否调用 console.ps1 现有的 `project prompt` 作为结构化说明生成基础？建议是 |
-| 2 | Registry 的 seed 数据是否包含所有 10+ 条 entry，还是先做 5 条 MVP？建议 MVP 5 条 |
+| 2 | ~~Registry 的 seed 数据是否包含所有 10+ 条 entry，还是先做 5 条 MVP？~~ **已确认：全量登记全部 15 条** |
 | 3 | 大指令编辑器是否需要"版本历史/回退"功能？建议第一版不做 |
 | 4 | SOP 步骤的 `agentPromptDraft` 和 `finalAgentPrompt` 是否都保存？建议都保存，final 是冻结版本 |
 
@@ -575,3 +586,76 @@ Agent 只是执行器。更换 Agent 只需改 `agentType` 字段。
 > - Script: 4 个（init-project-memory, sync-codex-home, console.ps1, server.js）
 > - Prompt Template: 4 个（git-branch-create, project-background, multi-session-collab, mvp1-step-ui）
 > **不应纳入 Registry**: 22 个历史审计/迁移/结果文件
+
+---
+
+## 阶段 C.6 计划修订（2026-07-05）：全量 Registry
+
+### 修订项
+
+| # | 旧方案 | 新方案 |
+|---|---|---|
+| 1 | 手工 MVP 5 条 seed entry | **全量登记**：当前全部 15 条可识别能力（5 Skill + 2 SOP + 4 Script + 4 Prompt Template） |
+| 2 | 分步渐进登记 | 首次实施必须完成全量登记，后续新增能力再增量追加 |
+| 3 | 风险项默认不展示 | 通过 `status`/`riskLevel`/`requiresApproval` 字段表达限制，不隐藏 |
+| 4 | 实施拆分 6 步 | 拆分为 9 步（新增 Registry 校验 + Task 绑定 Capability + Adapter 恢复） |
+
+### 全量登记原则
+
+```
+可查看    — 所有已注册能力在 Web 中可见
+可搜索    — 按 type / riskLevel / status 筛选
+可绑定 Task — 能力可关联到具体 Task
+可显示风险 — riskLevel + canModifyProject + requiresApproval
+可引用到 Prompt — Prompt Builder 可从 Registry 选择能力
+
+但：
+可注册 ≠ 默认可执行
+高风险 Script → requiresApproval: true
+未实现的 Skill → status: draft
+```
+
+### 来源扫描边界
+
+| 来源 | 纳入条件 |
+|---|---|
+| `tools/` 下 `*.ps1`、`*.js` | **全部纳入** |
+| `knowledge/flows/` 下 `*.md` | **全部纳入** |
+| `knowledge/traces/` 下文件 | **仅**满足"明确可复用 Prompt/Skill/SOP/模板"才纳入 |
+| 历史报告、阶段计划、审计记录 | **排除**（22 个文件） |
+
+### Skill 无独立文件时的登记
+
+当前 5 个 Skill 中有 3 个没有独立 `.md` 文件，按以下方式登记：
+
+```json
+{
+  "id": "skill-project-takeover",
+  "sourcePath": "built-in: console.ps1 project status + project prompt",
+  "entryFile": null,
+  "status": "active"
+}
+```
+
+**不伪造不存在文件。** `sourcePath` 使用 `built-in:` 前缀 + 文字描述来源。
+
+### 全量登记清单（15 条）
+
+| # | id | type | 来源 |
+|---|---|---|---|
+| 1 | `skill-project-takeover` | skill | built-in: console.ps1 |
+| 2 | `skill-code-audit` | skill | built-in: AGENTS.md rules |
+| 3 | `skill-architecture-analysis` | skill | built-in: generate-project-background prompt |
+| 4 | `skill-migration-analysis` | skill | built-in: 历史迁移知识 |
+| 5 | `skill-review-closeout` | skill | built-in: console.ps1 task review/close |
+| 6 | `sop-market-localchange` | sop | `knowledge/flows/market-localchange-task-guide.md` |
+| 7 | `sop-task-lifecycle` | sop | built-in: console.ps1 task flow |
+| 8 | `script-init-project-memory` | script | `tools/init-project-memory/init-project-memory.ps1` |
+| 9 | `script-sync-codex-home` | script | `tools/sync-codex-home/sync-codex-home.ps1` |
+| 10 | `script-console-cli` | script | `tools/ai-coding-console/cli/console.ps1` |
+| 11 | `script-gui-server` | script | `tools/ai-coding-console/gui/server.js` |
+| 12 | `prompt-git-branch-create` | prompt-template | `knowledge/flows/git-branch-create-ai-prompt-3.md` |
+| 13 | `prompt-project-background` | prompt-template | `knowledge/traces/generate-complete-project-background.md` |
+| 14 | `prompt-multi-session-collab` | prompt-template | `knowledge/traces/multi-session-collaboration-implementation-v2.md` |
+| 15 | `prompt-mvp1-step-ui` | prompt-template | `knowledge/traces/mvp1-step-ui.md` |
+
