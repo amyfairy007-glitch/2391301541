@@ -75,5 +75,4 @@
 
 ## Commit Hash
 
-- Pending final commit for this backend slice.
-
+- `c033aba` (`feat: 新增 Task 能力绑定 API`)
