@@ -1,28 +1,39 @@
-# 多项目 AI Coding 桌面控制台
+# AI Coding Desktop Console
 
-当前阶段：阶段 A（脚手架与数据域），已完成顶层目录和数据归属初始化。
+Phase: B - Project Registration & Status
 
-阶段 B（项目登记与状态读取）、阶段 C（CLI Task 流）、阶段 D（Agent Adapter）尚未实施。
-
-## 目录结构
+## Directory Structure
 
 ```
 tools/ai-coding-console/
-├── README.md                     ← 本文件
+├── README.md                     ← This file
 ├── config/
-│   └── console-config.json       ← 控制台专属配置
+│   └── console-config.json       ← Console-specific config
 └── cli/
-    └── console.ps1                ← CLI 入口（当前仅 help/version）
+    └── console.ps1                ← CLI entry (implemented: help/version + project add/list/status/prompt)
 
 data/ai-coding-console/
-├── projects-manifest.json        ← 已接入项目清单
-├── tasks/                        ← 后续按需创建
-├── board/                        ← 后续按需创建
-└── reports/                      ← 后续按需创建
+├── projects-manifest.json        ← Registered project index
+├── tasks/                        ← Created on demand (Phase C)
+├── board/                        ← Created on demand (Phase C)
+└── reports/                      ← Created on demand (Phase C)
 ```
 
-## 启动
+## Commands
 
 ```powershell
+# Help and version
 powershell -ExecutionPolicy Bypass -File tools\ai-coding-console\cli\console.ps1 help
+powershell -ExecutionPolicy Bypass -File tools\ai-coding-console\cli\console.ps1 version
+
+# Project commands
+powershell -ExecutionPolicy Bypass -File tools\ai-coding-console\cli\console.ps1 project add --path <path>
+powershell -ExecutionPolicy Bypass -File tools\ai-coding-console\cli\console.ps1 project list
+powershell -ExecutionPolicy Bypass -File tools\ai-coding-console\cli\console.ps1 project status --project <name-or-id>
+powershell -ExecutionPolicy Bypass -File tools\ai-coding-console\cli\console.ps1 project prompt --project <name-or-id>
 ```
+
+## Planned (not yet implemented)
+
+- Phase C: task create/list/status/approve/review/close, board show
+- Phase D: task dispatch (Agent Adapter)
