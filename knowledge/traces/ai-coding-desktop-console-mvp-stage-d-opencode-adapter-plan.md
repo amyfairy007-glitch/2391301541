@@ -154,7 +154,101 @@ child.on("close", (code) => {
 
 ---
 
-## 五、Run 数据模型与目录归属
+## 四-A、Agent Adapter 抽象层
+
+### 设计原则
+
+控制台的 CLI、GUI、Task 状态机、Run 管理器**不得直接调用 `opencode.cmd`**，不得包含任何 OpenCode 专属判断逻辑。所有 Agent 接入通过统一的 Adapter 接口完成。
+
+`run.json` 中 `agentType` 字段驱动 Adapter 选择：
+
+```
+task dispatch
+  → 读取 run.json.agentType ("opencode" | "codex" | (future))
+  → 获取对应 Adapter 实例
+  → adapter.dispatch(run) / adapter.cancel(run) / adapter.parseOutput(stdout)
+```
+
+### Adapter 接口
+
+```javascript
+// AgentAdapter 抽象接口（server.js 实现为 class）
+
+interface AgentAdapter {
+  name: string;           // "opencode" | "codex" | (future)
+  isAvailable(): boolean; // 检查 CLI 二进制是否可用
+
+  // 启��� Run — 返回子进程句柄
+  dispatch(run, context): ChildProcess;
+  // run: { runId, taskId, mode, agentType, workDir, promptFile }
+  // context: { task, project }
+  // 返回: Node.js ChildProcess (spawn 结果)
+
+  // 解析 stdout JSONL 流 → 提取文本输出
+  parseEvent(event: JSON): string | null;
+  // event: 从 --format json stdout 解析的单个 JSON object
+  // 返回: 文本内容或 null
+
+  // 从事件中提取 sessionId
+  extractSessionId(event: JSON): string | null;
+
+  // 取消 Run
+  cancel(proc: ChildProcess): void;
+}
+```
+
+### 当前实现：OpenCodeAdapter
+
+| 方法 | 实现 |
+|---|---|
+| `name` | `"opencode"` |
+| `isAvailable()` | `which opencode.cmd` → Boolean |
+| `dispatch()` | `spawn("opencode.cmd", ["run", "--dir", workDir, "--format", "json", "--title", title, ...])` |
+| `parseEvent()` | 检查 `event.type === "text"`，提取 `event.part.text` |
+| `extractSessionId()` | 返回 `event.sessionID` |
+| `cancel()` | `proc.kill('SIGTERM')` |
+
+### 预留接口：CodexAdapter
+
+| 维度 | 内容 |
+|---|---|
+| 实现状态 | **仅接口定义，不实现，不安装，不调用，不验证** |
+| `name` | `"codex"` |
+| `isAvailable()` | 返回 `false`（阶段 D） |
+| 扩展点 | 当 Codex CLI 可用时，实现上述 5 个方法并注册到 AdapterRegistry |
+
+### 预留接口：ClaudeAdapter
+
+| 维度 | 内容 |
+|---|---|
+| 实现状态 | **仅接口定义** |
+| 扩展点 | 同上 |
+
+### Adapter 注册表
+
+```javascript
+// server.js 启动时注册
+const adapters = {
+  opencode: new OpenCodeAdapter(),
+  codex: null,     // 预留
+  claude: null     // 预留
+};
+
+function getAdapter(agentType) {
+  const a = adapters[agentType];
+  if (!a || !a.isAvailable()) throw new Error(`Adapter not available: ${agentType}`);
+  return a;
+}
+```
+
+### GUI 与 Task 状态机的隔离
+
+| 禁止 | 正确做法 |
+|---|---|
+| GUI 中硬编码 "opencode" 按钮 | 按钮文本从 `run.agentType` 生成：`"Dispatch (${agentType})"` |
+| Task 状态机判断 `agentType === 'opencode'` | 状态机只判断 `run.status`、`task.status`、`mode`，不看 agentType |
+| CLI 中硬编码 `opencode.cmd` 路径 | CLI 调用 `getAdapter(agentType).dispatch()` |
+| board 中显示 "OpenCode session" | 显示 `"Session (${agentType}): ${sessionId}"` |
 
 ```
 data/ai-coding-console/tasks/<task-id>/
@@ -185,7 +279,12 @@ data/ai-coding-console/tasks/<task-id>/
   "createdAt": "...",
   "startedAt": "...",
   "completedAt": "...",
-  "error": null
+  "error": null,
+  "baseline": {
+    "commit": "abc1234",
+    "status": "",
+    "changedFiles": []
+  }
 }
 ```
 
