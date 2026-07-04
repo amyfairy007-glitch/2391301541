@@ -14,7 +14,7 @@
 ├── knowledge/                   ← AI 可读规则、SOP、流程、分析资料
 │   ├── flows/                   ← 流程、SOP、操作方法
 │   └── traces/                  ← 项目、功能、代码、仓库、工具设计、审计与追踪分析资料
-├── data/                        ← 项目档案、任务状态、运行记录、验证记录等持续数据（包含 `data/projects-manifest.json`，已接入项目清单的持久化入口）
+├── data/                        ← 项目档案、任务状态、运行记录、验证记录等持续数据（包含 `data/ai-coding-console/projects-manifest.json`，已接入项目清单的持久化入口）
 └── tools/                       ← 实际可执行、可复用的工具能力
 ```
 
