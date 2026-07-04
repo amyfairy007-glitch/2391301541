@@ -169,86 +169,102 @@ task dispatch
   → adapter.dispatch(run) / adapter.cancel(run) / adapter.parseOutput(stdout)
 ```
 
-### Adapter 接口
+### Adapter 统一能力契约（6 方法）
 
-```javascript
-// AgentAdapter 抽象接口（server.js 实现为 class）
+**不得绑定某一家 Agent。** 所有 Adapter 必须实现以下方法。
 
-interface AgentAdapter {
-  name: string;           // "opencode" | "codex" | (future)
-  isAvailable(): boolean; // 检查 CLI 二进制是否可用
+| 方法 | 输入 | 输出 | 失败语义 |
+|---|---|---|---|
+| `checkAvailability()` | — | `boolean` | CLI 不存在 → `false`，不抛异常 |
+| `dispatchPlanRun(runContext)` | `{ workDir, promptFile, title, taskId, runId, runMode: "plan" }` | `ChildProcess` + 写入 `run.json.agentMetadata` | CLI 启动失败 → throw，子进程异常退出 → proc.on("close") 处理 |
+| `dispatchBuildRun(runContext)` | 同上，`runMode: "build"` | 同上 | 同上 |
+| `cancelRun(proc)` | `ChildProcess` | `void` | proc 已退出 → no-op，不抛异常 |
+| `parseOutput(rawLine)` | `string`（stdout 一行 JSON） | `{ text: string\|null, sessionRef: string\|null }` | JSON 解析失败 → `{ text: null, sessionRef: null }` 不阻塞流 |
+| `getSessionRef(event)` | `object`（已解析 JSON event） | `string\|null` | 无 sessionRef → `null` |
 
-  // 启��� Run — 返回子进程句柄
-  dispatch(run, context): ChildProcess;
-  // run: { runId, taskId, mode, agentType, workDir, promptFile }
-  // context: { task, project }
-  // 返回: Node.js ChildProcess (spawn 结果)
+### 统一调用链（CLI + GUI 必须遵守）
 
-  // 解析 stdout JSONL 流 → 提取文本输出
-  parseEvent(event: JSON): string | null;
-  // event: 从 --format json stdout 解析的单个 JSON object
-  // 返回: 文本内容或 null
-
-  // 从事件中提取 sessionId
-  extractSessionId(event: JSON): string | null;
-
-  // 取消 Run
-  cancel(proc: ChildProcess): void;
-}
+```
+task dispatch --task <id> [--agent opencode]
+  │
+  ├── 1. 确定 agentType（参数 > config.json 默认 > "opencode"）
+  ├── 2. AdapterRegistry.get(agentType)
+  ├── 3. adapter.checkAvailability() → 不可用则报错退出
+  ├── 4. 创建 run.json（统一字段，不含 OpenCode 专属字段）
+  ├── 5. 写入 prompt.md
+  ├── 6. 记录 Git 基线到 run.json.baseline
+  ├── 7. adapter.dispatchPlanRun(ctx)
+  │       → spawn CLI 子进程
+  │       → stdout 每行 → adapter.parseOutput(line)
+  │           → 提取 text → 追加写入 plan.md
+  │           → 提取 sessionRef → 写入 run.json.sessionRef
+  │           → agentMetadata（如 tokenUsage） → 写入 run.json.agentMetadata
+  ├── 8. proc.on("close") →
+  │       exitCode 0 → run.status: "completed"
+  │       exitCode !0 → run.status: "failed"
+  │       检查 Git 基线 → 有变更 → run.status: "failed"
+  │       task.status → "awaiting_plan_approval"（仅 completed 时）
+  └── 9. 回写 run.json + task.json
 ```
 
-### 当前实现：OpenCodeAdapter
+### 当前注册：OpenCodeAdapter（阶段 D 唯一实现）
 
 | 方法 | 实现 |
 |---|---|
-| `name` | `"opencode"` |
-| `isAvailable()` | `which opencode.cmd` → Boolean |
-| `dispatch()` | `spawn("opencode.cmd", ["run", "--dir", workDir, "--format", "json", "--title", title, ...])` |
-| `parseEvent()` | 检查 `event.type === "text"`，提取 `event.part.text` |
-| `extractSessionId()` | 返回 `event.sessionID` |
-| `cancel()` | `proc.kill('SIGTERM')` |
+| `checkAvailability()` | `where opencode.cmd` → 返回 boolean |
+| `dispatchPlanRun()` | `spawn("opencode.cmd", ["run", "--dir", workDir, "--format", "json", "--title", title, "--file", promptFile, "Run in plan mode (read-only). ..."])` |
+| `dispatchBuildRun()` | 同上，prompt 内容改为 build 指令 |
+| `cancelRun(proc)` | `proc.kill("SIGTERM")`，5 秒后 `proc.kill("SIGKILL")` |
+| `parseOutput(line)` | `JSON.parse(line)` → `event.type === "text"` → `event.part.text` |
+| `getSessionRef(event)` | 返回 `event.sessionID`，写入 `run.json.sessionRef` |
+| agentMetadata 写入示例 | `{ tokenUsage: { total: 6467, input: 6449, output: 18 } }` |
 
-### 预留接口：CodexAdapter
-
-| 维度 | 内容 |
-|---|---|
-| 实现状态 | **仅接口定义，不实现，不安装，不调用，不验证** |
-| `name` | `"codex"` |
-| `isAvailable()` | 返回 `false`（阶段 D） |
-| 扩展点 | 当 Codex CLI 可用时，实现上述 5 个方法并注册到 AdapterRegistry |
-
-### 预留接口：ClaudeAdapter
-
-| 维度 | 内容 |
-|---|---|
-| 实现状态 | **仅接口定义** |
-| 扩展点 | 同上 |
-
-### Adapter 注册表
+### 预留：CodexAdapter（不安装、不实现、不调用）
 
 ```javascript
-// server.js 启动时注册
-const adapters = {
-  opencode: new OpenCodeAdapter(),
-  codex: null,     // 预留
-  claude: null     // 预留
-};
-
-function getAdapter(agentType) {
-  const a = adapters[agentType];
-  if (!a || !a.isAvailable()) throw new Error(`Adapter not available: ${agentType}`);
-  return a;
+class CodexAdapter {
+  name = "codex";
+  checkAvailability() { return false; }  // 阶段 D 始终 unavailable
+  dispatchPlanRun() { throw new Error("Agent adapter not installed: codex"); }
+  dispatchBuildRun() { throw new Error("Agent adapter not installed: codex"); }
+  cancelRun() {}
+  parseOutput() { return { text: null, sessionRef: null }; }
+  getSessionRef() { return null; }
 }
+```
+
+### 预留：ClaudeCodeAdapter（同上）
+
+```javascript
+class ClaudeCodeAdapter {
+  name = "claude";
+  checkAvailability() { return false; }
+  // ... 全部抛出 "Agent adapter not installed: claude"
+}
+```
+
+### CLI 命令：`task dispatch --agent`
+
+```powershell
+task dispatch --task <id>
+  # agentType 默认 "opencode"
+
+task dispatch --task <id> --agent codex
+  # → "Agent adapter not installed: codex"
+
+task dispatch --task <id> --agent claude
+  # → "Agent adapter not installed: claude"
 ```
 
 ### GUI 与 Task 状态机的隔离
 
 | 禁止 | 正确做法 |
 |---|---|
-| GUI 中硬编码 "opencode" 按钮 | 按钮文本从 `run.agentType` 生成：`"Dispatch (${agentType})"` |
-| Task 状态机判断 `agentType === 'opencode'` | 状态机只判断 `run.status`、`task.status`、`mode`，不看 agentType |
-| CLI 中硬编码 `opencode.cmd` 路径 | CLI 调用 `getAdapter(agentType).dispatch()` |
-| board 中显示 "OpenCode session" | 显示 `"Session (${agentType}): ${sessionId}"` |
+| GUI 中硬编码 "opencode" 按钮 | 按钮文本从 `run.agentType` 动态生成 |
+| Task 状态机判断 `agentType === 'opencode'` | 状态机只判断 `run.status`、`task.status`、`run.mode` |
+| board 中显示 "OpenCode session" | 显示 `"Agent: ${agentType}, Session: ${sessionRef}"` |
+| server.js 中硬编码 `opencode.cmd` 路径 | 路径封装在 OpenCodeAdapter 内部，server.js 只调用 `adapter.dispatchPlanRun()` |
+| CLI 中散落 opencode 分支逻辑 | CLI dispatch 入口统一走 `AdapterRegistry.get(agentType).dispatchPlanRun()` |
 
 ```
 data/ai-coding-console/tasks/<task-id>/
@@ -256,10 +272,10 @@ data/ai-coding-console/tasks/<task-id>/
 ├── prompt.md
 ├── runs/
 │   └── <run-id>/              ← R-YYYYMMDD-NNN-seq
-│       ├── run.json           ← { runId, taskId, mode, agentType, status, sessionId, ... }
+│       ├── run.json           ← 统一字段 + agentMetadata
 │       ├── prompt.md          ← 该 Run 的完整 Prompt
-│       ├── plan.md            ← opencode stdout JSON 事件流解析后的文本输出
-│       ├── plan-raw.jsonl     ← opencode 原始 JSON 事件（每行一个 event）
+│       ├── plan.md            ← parseOutput 提取的文本（所有 Adapter 共用）
+│       ├── agent-raw.jsonl    ← Agent stdout 原始流（保留原始事件，不消耗 token）
 │       ├── build.log          ← build 模式输出
 │       └── verify-result.md   ← verify 输出
 └── approvals/
@@ -274,19 +290,30 @@ data/ai-coding-console/tasks/<task-id>/
   "mode": "plan",
   "agentType": "opencode",
   "status": "completed",
-  "sessionId": "abc123-def456",
-  "exitCode": 0,
-  "createdAt": "...",
-  "startedAt": "...",
-  "completedAt": "...",
-  "error": null,
+  "sessionRef": "ses_0d1f1e6e9ffe39solGb19bmVDW",
+  "agentMetadata": {
+    "tokenUsage": { "total": 6467, "input": 6449, "output": 18 }
+  },
   "baseline": {
     "commit": "abc1234",
     "status": "",
     "changedFiles": []
-  }
+  },
+  "exitCode": 0,
+  "createdAt": "...",
+  "startedAt": "...",
+  "completedAt": "...",
+  "error": null
 }
 ```
+
+| 字段 | 层级 | 说明 |
+|---|---|---|
+| `runId`, `taskId`, `mode`, `status`, `exitCode`, `error`, `createdAt/startedAt/completedAt` | **统一** | 所有 Adapter 共用，GUI/Task/Board 直接读 |
+| `agentType` | **统一** | 驱动 Adapter 选择 |
+| `sessionRef` | **统一** | 各 Adapter 写入自己的会话引用；GUI 展示此字段即可，无需知道是 OpenCode 的 sessionID 还是 Codex 的 runID |
+| `agentMetadata` | **Agent 专属** | GUI/Task/Board 不得依赖此字段内的任何结构 |
+| `baseline` | **统一** | Git 基线检测结果
 
 ---
 
