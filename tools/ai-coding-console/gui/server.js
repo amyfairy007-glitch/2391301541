@@ -5,6 +5,10 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
+const {
+  getCapabilityRegistryEntry,
+  loadCapabilityRegistry
+} = require("../lib/capability-registry");
 
 const PORT = 3456;
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
@@ -12,6 +16,7 @@ const GUI_DIR = __dirname;
 const DATA_DIR = path.join(REPO_ROOT, "data", "ai-coding-console");
 const CONSOLE_PS1 = path.join(REPO_ROOT, "tools", "ai-coding-console", "cli", "console.ps1");
 const MANIFEST_PATH = path.join(DATA_DIR, "projects-manifest.json");
+const CAPABILITY_REGISTRY_PATH = path.join(DATA_DIR, "capability-registry.json");
 
 function readJSON(filePath) {
   if (!fs.existsSync(filePath)) return null;
@@ -106,6 +111,61 @@ function getProjectInfo(projectId) {
   return manifest.projects[projectId] || null;
 }
 
+function parseProjectStatus(statusOutput, projectRecord) {
+  const summary = {
+    gitBranch: null,
+    gitDirty: null,
+    gitRemote: projectRecord?.gitRemote || projectRecord?.gitremote || null,
+    agentsMd: projectRecord?.hasAgentsMd || projectRecord?.hasagentsmd || false,
+    aiMemory: projectRecord?.hasAiMemory || projectRecord?.hasaimemory || false,
+    projectState: projectRecord?.takeoverStatus || projectRecord?.takeoverstatus || "unknown"
+  };
+
+  const lines = String(statusOutput || "")
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const branchMatch = line.match(/(?:git\s*)?branch\s*[:=]\s*(.+)$/i);
+    if (branchMatch && !summary.gitBranch) {
+      summary.gitBranch = branchMatch[1].trim();
+    }
+
+    const remoteMatch = line.match(/(?:git\s*)?remote\s*[:=]\s*(.+)$/i);
+    if (remoteMatch && !summary.gitRemote) {
+      summary.gitRemote = remoteMatch[1].trim();
+    }
+
+    const dirtyMatch = line.match(/(?:git\s*)?(?:dirty|status)\s*[:=]\s*(.+)$/i);
+    if (dirtyMatch && summary.gitDirty === null) {
+      const value = dirtyMatch[1].trim().toLowerCase();
+      summary.gitDirty = value.includes("dirty") || value.includes("modified") || value === "true" || value === "yes";
+    }
+
+    if (/dirty/i.test(line) && summary.gitDirty === null) {
+      summary.gitDirty = true;
+    }
+
+    const agentsMatch = line.match(/AGENTS\.md.*?(present|missing|yes|no)/i);
+    if (agentsMatch) {
+      summary.agentsMd = /present|yes/i.test(agentsMatch[1]);
+    }
+
+    const memoryMatch = line.match(/\.ai\/?.*?(present|missing|yes|no)/i);
+    if (memoryMatch) {
+      summary.aiMemory = /present|yes/i.test(memoryMatch[1]);
+    }
+
+    const stateMatch = line.match(/(?:project\s*)?state\s*[:=]\s*(.+)$/i);
+    if (stateMatch && summary.projectState === "unknown") {
+      summary.projectState = stateMatch[1].trim();
+    }
+  }
+
+  return summary;
+}
+
 // ===== Server =====
 
 const server = http.createServer((req, res) => {
@@ -136,6 +196,7 @@ const server = http.createServer((req, res) => {
     const projects = [];
     for (const key of Object.keys(manifest.projects)) {
       const prj = manifest.projects[key];
+      const summary = parseProjectStatus("", prj);
       projects.push({
         id: prj.id || key,
         displayName: prj.displayName || prj.displayname || key,
@@ -144,7 +205,8 @@ const server = http.createServer((req, res) => {
         hasAgentsMd: prj.hasAgentsMd || prj.hasagentsmd || false,
         gitRemote: prj.gitRemote || prj.gitremote || null,
         addedAt: prj.addedAt || prj.addedat || "",
-        takeoverStatus: prj.takeoverStatus || prj.takeoverstatus || "unknown"
+        takeoverStatus: prj.takeoverStatus || prj.takeoverstatus || "unknown",
+        statusSummary: summary
       });
     }
     sendJSON(res, projects);
@@ -158,6 +220,7 @@ const server = http.createServer((req, res) => {
     const prj = getProjectInfo(pid);
     if (!prj) { sendError(res, "Project not found", 404); return; }
     execPS1(["project", "status", "--project", pid]).then(result => {
+      const statusSummary = parseProjectStatus(result.output, prj);
       sendJSON(res, {
         id: prj.id || pid,
         displayName: prj.displayName || prj.displayname || pid,
@@ -167,9 +230,40 @@ const server = http.createServer((req, res) => {
         gitRemote: prj.gitRemote || prj.gitremote || null,
         addedAt: prj.addedAt || prj.addedat || "",
         takeoverStatus: prj.takeoverStatus || prj.takeoverstatus || "unknown",
-        statusOutput: result.output
+        statusOutput: result.output,
+        statusSummary
       });
     });
+    return;
+  }
+
+  // GET /api/capabilities
+  if (p === "/api/capabilities" && m === "GET") {
+    const loaded = loadCapabilityRegistry(CAPABILITY_REGISTRY_PATH, REPO_ROOT);
+    if (!loaded.ok) {
+      sendJSON(res, {
+        error: loaded.error,
+        details: loaded.details || []
+      }, loaded.statusCode || 500);
+      return;
+    }
+    sendJSON(res, loaded.registry);
+    return;
+  }
+
+  // GET /api/capabilities/:id
+  const capabilityMatch = p.match(/^\/api\/capabilities\/([^/]+)$/);
+  if (capabilityMatch && m === "GET") {
+    const capabilityId = decodeURIComponent(capabilityMatch[1]);
+    const loaded = getCapabilityRegistryEntry(CAPABILITY_REGISTRY_PATH, REPO_ROOT, capabilityId);
+    if (!loaded.ok) {
+      sendJSON(res, {
+        error: loaded.error,
+        details: loaded.details || []
+      }, loaded.statusCode || 500);
+      return;
+    }
+    sendJSON(res, loaded.entry);
     return;
   }
 
