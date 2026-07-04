@@ -9,6 +9,11 @@ const {
   getCapabilityRegistryEntry,
   loadCapabilityRegistry
 } = require("../lib/capability-registry");
+const {
+  isSafeTaskId,
+  loadTaskCapabilityBinding,
+  saveTaskCapabilityBinding
+} = require("../lib/task-capability-binding");
 
 const PORT = 3456;
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
@@ -54,6 +59,10 @@ function sendJSON(res, data, status) {
 
 function sendError(res, msg, status) {
   sendJSON(res, { error: msg }, status || 500);
+}
+
+function isSafeProjectId(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && !value.includes("..");
 }
 
 function getProjectTasks(projectId) {
@@ -271,6 +280,7 @@ const server = http.createServer((req, res) => {
   const tasksListMatch = p.match(/^\/api\/tasks\/([^/]+)$/);
   if (tasksListMatch && m === "GET") {
     const pid = decodeURIComponent(tasksListMatch[1]);
+    if (!isSafeProjectId(pid)) { sendError(res, "Invalid project id", 400); return; }
     const prj = getProjectInfo(pid);
     if (!prj) { sendJSON(res, []); return; }
     sendJSON(res, getProjectTasks(pid));
@@ -286,10 +296,67 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // GET/POST /api/tasks/:projectId/:taskId/capabilities
+  const taskCapabilitiesMatch = p.match(/^\/api\/tasks\/([^/]+)\/([^/]+)\/capabilities$/);
+  if (taskCapabilitiesMatch) {
+    const projectId = decodeURIComponent(taskCapabilitiesMatch[1]);
+    const taskId = decodeURIComponent(taskCapabilitiesMatch[2]);
+    if (!isSafeProjectId(projectId) || !isSafeTaskId(taskId)) {
+      sendJSON(res, { error: "invalid_task_route" }, 400);
+      return;
+    }
+    if (m === "GET") {
+      const loaded = loadTaskCapabilityBinding(REPO_ROOT, projectId, taskId, CAPABILITY_REGISTRY_PATH);
+      if (!loaded.ok) {
+        sendJSON(res, {
+          error: loaded.error,
+          details: loaded.details || [],
+          invalidIds: loaded.invalidIds || []
+        }, loaded.statusCode || 500);
+        return;
+      }
+      sendJSON(res, loaded);
+      return;
+    }
+    if (m === "POST") {
+      let body = "";
+      req.on("data", d => body += d);
+      req.on("end", () => {
+        try {
+          const parsed = JSON.parse(body || "{}");
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            sendJSON(res, { error: "invalid_request_body" }, 400);
+            return;
+          }
+          const result = saveTaskCapabilityBinding(
+            REPO_ROOT,
+            projectId,
+            taskId,
+            parsed.capabilityIds,
+            CAPABILITY_REGISTRY_PATH
+          );
+          if (!result.ok) {
+            sendJSON(res, {
+              error: result.error,
+              details: result.details || [],
+              invalidIds: result.invalidIds || []
+            }, result.statusCode || 500);
+            return;
+          }
+          sendJSON(res, result);
+        } catch (err) {
+          sendJSON(res, { error: "invalid_request_body", details: [err.message] }, 400);
+        }
+      });
+      return;
+    }
+  }
+
   // GET /api/board/:projectId
   const boardMatch = p.match(/^\/api\/board\/(.+)$/);
   if (boardMatch && m === "GET") {
     const pid = decodeURIComponent(boardMatch[1]);
+    if (!isSafeProjectId(pid)) { sendError(res, "Invalid project id", 400); return; }
     execPS1(["board", "show", "--project", pid]).then(() => {
       const boardDir = path.join(DATA_DIR, "board");
       const boardFile = path.join(boardDir, pid + "-board.md");
@@ -310,6 +377,7 @@ const server = http.createServer((req, res) => {
       try {
         const { projectId, desc } = JSON.parse(body);
         if (!projectId || !desc) { sendError(res, "Missing projectId or desc", 400); return; }
+        if (!isSafeProjectId(projectId)) { sendError(res, "Invalid project id", 400); return; }
         const result = await execPS1(["task", "create", "--project", projectId, "--desc", desc]);
         if (result.ok) {
           const tid = result.output.match(/T-\d{8}-\d{3}/)?.[0] || "";
@@ -326,6 +394,7 @@ const server = http.createServer((req, res) => {
   const approveMatch = p.match(/^\/api\/tasks\/([^/]+)\/approve$/);
   if (approveMatch && m === "POST") {
     const tid = decodeURIComponent(approveMatch[1]);
+    if (!isSafeTaskId(tid)) { sendError(res, "Invalid task id", 400); return; }
     let body = "";
     req.on("data", d => body += d);
     req.on("end", async () => {
@@ -344,6 +413,7 @@ const server = http.createServer((req, res) => {
   const reviewMatch = p.match(/^\/api\/tasks\/([^/]+)\/review$/);
   if (reviewMatch && m === "POST") {
     const tid = decodeURIComponent(reviewMatch[1]);
+    if (!isSafeTaskId(tid)) { sendError(res, "Invalid task id", 400); return; }
     let body = "";
     req.on("data", d => body += d);
     req.on("end", async () => {
@@ -362,6 +432,7 @@ const server = http.createServer((req, res) => {
   const closeMatch = p.match(/^\/api\/tasks\/([^/]+)\/close$/);
   if (closeMatch && m === "POST") {
     const tid = decodeURIComponent(closeMatch[1]);
+    if (!isSafeTaskId(tid)) { sendError(res, "Invalid task id", 400); return; }
     execPS1(["task", "close", "--task", tid]).then(result => {
       sendJSON(res, { ok: result.ok, output: result.output });
     });

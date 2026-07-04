@@ -46,6 +46,14 @@ data/ai-coding-console/
 - This stage only exposes registry metadata and read-only API access.
 - Future C.6-B / C.6-C work will connect Web browsing, Task binding, Prompt, and SOP flows.
 
+## Task Capability Binding
+
+- Binding path: `data/ai-coding-console/tasks/<task-id>/capabilities.json`
+- Read API: `GET /api/tasks/:projectId/:taskId/capabilities`
+- Write API: `POST /api/tasks/:projectId/:taskId/capabilities`
+- Bindings are task-scoped and only store `capabilityIds`.
+- Missing binding files read back as empty bindings.
+
 ## CLI Commands
 
 ```powershell
