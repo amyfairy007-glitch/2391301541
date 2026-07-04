@@ -1,5 +1,8 @@
 {
   "name": "ai-ui-agentic",
   "version": "0.1.0",
-  "private": true
+  "private": true,
+  "scripts": {
+    "gui": "node tools/ai-coding-console/gui/server.js"
+  }
 }

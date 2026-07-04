@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Coding Console</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh}
+header{background:#161b22;border-bottom:1px solid #30363d;padding:12px 24px;display:flex;align-items:center;justify-content:space-between}
+header h1{font-size:16px;color:#58a6ff}
+.header-actions{display:flex;gap:8px;align-items:center}
+.badge{font-size:11px;padding:2px 8px;border-radius:10px;background:#21262d;color:#8b949e}
+main{max-width:960px;margin:0 auto;padding:20px}
+nav{margin-bottom:16px;display:flex;gap:4px}
+nav a{color:#8b949e;text-decoration:none;padding:8px 14px;border-radius:6px;font-size:14px}
+nav a:hover,nav a.active{background:#21262d;color:#c9d1d9}
+.card{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;margin-bottom:12px}
+.card:hover{border-color:#58a6ff}
+.card-title{font-size:15px;color:#58a6ff;margin-bottom:6px}
+.card-meta{font-size:12px;color:#8b949e;display:flex;gap:16px;flex-wrap:wrap}
+.card-actions{margin-top:10px;display:flex;gap:8px}
+.btn{padding:6px 14px;border:1px solid #30363d;border-radius:6px;background:#21262d;color:#c9d1d9;cursor:pointer;font-size:13px}
+.btn:hover{background:#30363d}
+.btn-primary{border-color:#1f6feb;background:#1f6feb;color:#fff}
+.btn-primary:hover{background:#388bfd}
+.btn-danger{border-color:#da3633;color:#f85149}
+.btn-danger:hover{background:#da3633;color:#fff}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.flex-row{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+form input,form textarea{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;color:#c9d1d9;font-size:13px;width:100%}
+form textarea{min-height:80px;resize:vertical}
+form label{font-size:13px;color:#8b949e;margin-bottom:4px;display:block}
+form .field{margin-bottom:12px}
+.empty{text-align:center;padding:40px;color:#8b949e;font-size:14px}
+.error{background:#490202;border:1px solid #da3633;border-radius:6px;padding:12px;margin:12px 0;color:#f85149;font-size:13px;white-space:pre-wrap}
+.success{background:#0d3320;border:1px solid#238636;border-radius:6px;padding:12px;margin:12px 0;color:#3fb950;font-size:13px;white-space:pre-wrap}
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100}
+.modal-content{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:24px;max-width:420px;width:90%}
+.modal-content h3{margin-bottom:12px;color:#c9d1d9}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+code{background:#21262d;padding:1px 6px;border-radius:3px;font-size:12px}
+pre{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px;overflow-x:auto;font-size:13px;line-height:1.5}
+.status-created{color:#8b949e}
+.status-plan_approved{color:#d29922}
+.status-completed{color:#3fb950}
+.status-failed,.status-plan_rejected{color:#f85149}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid #30363d}
+th{color:#8b949e;font-weight:500}
+</style>
+</head>
+<body>
+<header>
+  <h1>AI Coding Console</h1>
+  <div class="header-actions">
+    <span class="badge">C.5</span>
+    <span class="badge">v0.1.0</span>
+  </div>
+</header>
+<main>
+  <nav id="main-nav"></nav>
+  <div id="page"></div>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
