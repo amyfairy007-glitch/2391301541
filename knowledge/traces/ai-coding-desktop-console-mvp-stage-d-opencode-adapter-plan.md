@@ -1,9 +1,10 @@
 # 多项目 AI Coding 桌面控制台 MVP — 阶段 D OpenCode Adapter 计划
 
-> 生成日期：2026-07-05（修订：环境核查更新）
+> 生成日期：2026-07-05（修订 v2：真实协议探测完成）
 > 前置：阶段 A/B/C/C收口/C.5 全部完成
 > 本机 OpenCode: **v1.17.13**，CLI 完全可用（`opencode.cmd`）
-> 修订说明：原"手动分发方案 C"已废弃，改为直接调用 `opencode.cmd run`
+> 协议探测：已完成，JSONL event 结构已确认
+> 修订：新增协议探测结果 + Plan 权限多层防线 + Git 基线越权检测
 
 ---
 
@@ -315,4 +316,128 @@ ready → running → completed
 
 ---
 
-> **推荐方案**: A — `opencode.cmd run` 直接调用。无需启动 serve。Run 通过 `--format json` stdout 流保存到 `plan.md` + `plan-raw.jsonl`。plan 只读由 prompt.md + `--command` 保证。
+## 十六、实施前协议探测（2026-07-05 已完成）
+
+### 探测环境
+
+| 项目 | 内容 |
+|---|---|
+| 临时目录 | `%TEMP%\oc-probe-2\`（含 test.txt） |
+| 命令 | `opencode.cmd run --dir <tmp> --format json --title "probe-x" ...` |
+| 探测后 | 临时目录已删除，零残留 |
+
+### 探测结果
+
+| 探测项 | 结果 |
+|---|---|
+| `--format json` 输出 | JSONL 格式，每行一个 JSON object |
+| 事件类型 | `step_start`, `text`, `step_finish`, `error` |
+| `sessionID` | 每条事件均含：`ses_<run-id>` 格式 |
+| `--file` + 消息共存 | ✅ 文件作为上下文附件，消息作为指令 |
+| Token 统计 | `step_finish.part.tokens` = `{input, output, cache}` |
+| 退出码（成功） | `0` |
+| 只读行为 | ✅ 文件内容被读取，无任何修改 |
+
+### 协议契约确认
+
+| 不可假设项 | 探测确认 | 实施策略 |
+|---|---|---|
+| `--file` + `--command` 同时使用 | ✅ 可用 | prompt 作为消息，项目上下文通过 `--file` 附件 |
+| JSON 事件字段稳定性 | 4 种 event type，字段稳定 | 用 `part.text` 提取文本输出 |
+| sessionID 提取 | `event.sessionID` / `event.part.sessionID` | 从第一个 event 提取并保存到 run.json |
+| Windows spawn/kill | ✅ `Start-Process -PassThru` + `Stop-Process` | task cancel 用 `Stop-Process` |
+| Agent 是否读 AGENTS.md | **未探测**（临时目录无 AGENTS.md） | 控制台在 prompt.md 中显式包含 AGENTS.md 规则摘要 |
+| run 成功但 Git 变脏 | **未探测** | 见 Git 安全门禁 |
+| **无 `--mode plan` 参数** | **已确认** — CLI 不支持 | plan 只读通过 prompt + Git 基线双保险 |
+
+---
+
+## 十七、Plan 模式与权限强制策略
+
+### CLI 不支持内建 plan mode
+
+`opencode.cmd run --help` 未提供 `--mode plan/build/audit` 参数。只读保证依赖**三层防线**：
+
+| 层 | 机制 | 说明 |
+|---|---|---|
+| **L1: Prompt 强制** | 消息开头 + prompt.md 首行均声明显式只读 | "Run in PLAN MODE (read-only). Do NOT modify, create, delete, or rename any file." |
+| **L2: 项目规则** | 项目 AGENTS.md 已要求 "analyze first, then change files" | 控制台自动将 AGENTS.md 规则摘要注入 prompt.md |
+| **L3: 事后检测** | Git 基线对比 | 见下一节 |
+
+### 安全评估
+
+| 评估 | 结论 |
+|---|---|
+| 是否具备真正可强制拒绝的权限参数？ | ❌ 不具备。`opencode.cmd run` 无 `--deny-edit` 或 `--readonly` 参数 |
+| 基于 Prompt 的只读是否足够？ | ⚠️ 不足以保证，但配合 L3（Git 基线检测）可**事后检测**所有越权写入 |
+| 是否阻塞阶段 D 实施？ | ❌ 不阻塞。三层防线中 L3 提供硬检测，越权写入可被捕获并标记 failed |
+
+> **实施决定**：继续方案 A。Plan Run 后的 Git 状态变更自动标记为 `failed`，拒绝进入审批。
+
+---
+
+## 十八、Git 基线与越权写入检测
+
+### dispatch 前基线录制
+
+```
+git -C <projectPath> rev-parse HEAD              → run.json.baselineCommit
+git -C <projectPath> status --porcelain          → run.json.baselineStatus
+git -C <projectPath> diff --name-only HEAD       → run.json.baselineFiles
+```
+
+### run 完成后检测
+
+```
+git -C <projectPath> status --porcelain          → currentStatus
+git -C <projectPath> diff --name-only HEAD       → changedFiles
+```
+
+### 越权处理
+
+| 条件 | 行为 |
+|---|---|
+| `currentStatus` 与 `baselineStatus` 一致 | run.status → completed ✅ |
+| 有新增未跟踪文件 | 记录到 run.json.warning，不阻塞 |
+| **有已修改/删除的已跟踪文件** | run.status → `failed`，run.json.error 记录变更文件清单，task status NOT updated to awaiting_plan_approval |
+
+### 不自动回滚
+
+任何越权变更由人工处理。控制台不执行 `git checkout`、`git reset` 或任何回滚操作。
+
+---
+
+## 十九、CLI 参数和事件格式兼容性边界
+
+### 当前确认可用
+
+| 参数/事件 | 状态 | 说明 |
+|---|---|---|
+| `--dir <path>` | ✅ 可用 | 未与 `--attach` 联用时为本地工作目录 |
+| `--format json` | ✅ 可用 | JSONL 格式，每行一个 event |
+| `--file <path>` | ✅ 可用 | 附件作为上下文，不自动保存 |
+| `--command <cmd>` | ⚠️ 未独立探测 | 与消息 positionals 合并使用 |
+| `--title <title>` | ✅ 可用 | session 标题 |
+| `--session <id> --continue` | ⚠️ 未探测 | 假设可用，build Run 时验证 |
+| `event.type` | ✅ step_start / text / step_finish / error | |
+| `event.sessionID` | ✅ 字符串，格式 `ses_<base64>` | |
+| `event.part.text` | ✅ 文本输出内容 | |
+
+### 假设但未验证
+
+| 假设 | 验证计划 |
+|---|---|
+| `--command` 与 positionals 同时可用 | build Run 前用临时探测验证 |
+| `--session --continue` 可恢复上下文 | 实现后首次 build Run 验证 |
+| JSON 事件中不包含 `type: "permission_request"` | 若出现则 run.json 记录为需要人工审批 |
+
+---
+
+## 二十、废弃的原计划内容
+
+| 废弃项 | 原因 |
+|---|---|
+| "方案 C: 手动分发" | OpenCode CLI 已完全可用 |
+| "task collect 手动收集" | stdout 流式写入 |
+| "未来 OpenCode 支持 CLI 时升级" | 已是现状 |
+
