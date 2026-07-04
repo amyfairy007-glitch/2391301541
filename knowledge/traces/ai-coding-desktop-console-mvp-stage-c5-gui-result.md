@@ -80,3 +80,50 @@
 ## 六、是否具备进入阶段 D 条件
 
 ✅ 具备。GUI 可查看项目、创建 Task、操作审批流程，全部走 console.ps1 后端。数据域保持干净。
+
+---
+
+## 七、实际启动与浏览器验证
+
+| 验证项 | 结果 |
+|---|---|
+| 启动命令 | 
+pm run gui |
+| 监听地址 | http://127.0.0.1:3456 |
+| 项目列表页 | 显示 i-ui-agentic |
+| Task 页面空状态 | "No tasks yet" |
+| 创建测试 Task (T-20260705-001) | POST /api/tasks/create 成功 |
+| Task 列表更新 | 显示 T-20260705-001 + "created" |
+| CLI 同步 | 	ask list --project ai-ui-agentic 同步可见 |
+| Task 详情 | status: created, no runs, no approvals |
+| Board | 247 chars Markdown |
+
+### 启动中发现并修复
+
+| 问题 | 修复 |
+|---|---|
+| JSON 文件含 UTF-8 BOM 导致 parse 失败 | readJSON() 统一增加 BOM 剥离 |
+| getProjectTasks/getTaskDetail 未用 readJSON | 统一使用 readJSON() |
+
+## 八、测试数据清理
+
+| 操作 | 结果 |
+|---|---|
+| 删除 data/ai-coding-console/tasks/ | 已删除（含 T-20260705-001） |
+| 删除 data/ai-coding-console/board/ | 已删除 |
+| 清除 manifest 测试字段 | lastActiveTaskId, lastActivityAt 已移除 |
+| 停止 GUI 服务 | node 进程已终止 |
+| 最终状态 | 仅 projects-manifest.json 保留真实项目 i-ui-agentic |
+
+## 九、可复现启动步骤
+
+`powershell
+cd E:\program\ai-ui-agentic
+npm run gui
+# 浏览器打开 http://localhost:3456
+# 操作完成后: Ctrl+C 停止服务
+`
+
+## 十、是否具备进入阶段 D 条件
+
+✅ 具备。GUI 已实际启动并通过全流程验证，数据域干净。

@@ -59,8 +59,8 @@ function getProjectTasks(projectId) {
   for (const e of entries) {
     if (!e.isDirectory()) continue;
     const taskPath = path.join(tasksDir, e.name, "task.json");
-    if (!fs.existsSync(taskPath)) continue;
-    const task = JSON.parse(fs.readFileSync(taskPath, "utf8"));
+    const task = readJSON(taskPath);
+    if (!task) continue;
     if (task.projectId !== projectId && task.projectid !== projectId) continue;
     tasks.push(task);
   }
@@ -74,9 +74,8 @@ function getProjectTasks(projectId) {
 
 function getTaskDetail(taskId) {
   const taskDir = path.join(DATA_DIR, "tasks", taskId);
-  const taskPath = path.join(taskDir, "task.json");
-  if (!fs.existsSync(taskPath)) return null;
-  const task = JSON.parse(fs.readFileSync(taskPath, "utf8"));
+  const task = readJSON(path.join(taskDir, "task.json"));
+  if (!task) return null;
 
   const runs = [];
   const runsDir = path.join(taskDir, "runs");
@@ -93,7 +92,8 @@ function getTaskDetail(taskId) {
   if (fs.existsSync(appDir)) {
     for (const af of fs.readdirSync(appDir)) {
       if (!af.endsWith(".json")) continue;
-      approvals.push(JSON.parse(fs.readFileSync(path.join(appDir, af), "utf8")));
+      const ad = readJSON(path.join(appDir, af));
+      if (ad) approvals.push(ad);
     }
   }
 
