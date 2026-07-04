@@ -17,7 +17,7 @@
 | 手动登记项目 | 用户提供路径 → 控制台注册到 `projects-manifest.json` → 调用 `init-project-memory` 初始化 `.ai/` |
 | 读取项目状态 | 读取 `.ai/business-context.md`、`.ai/current-state.md`、Git 分支、`PROJECT_MAP.md` 等 |
 | 生成项目上下文 Prompt | 将项目背景 + 当前状态 + Task 目标 + AGENTS.md 规则摘要组装为完整 Prompt |
-| 创建 audit / plan / build / verify Task | 5 种任务类型，用户选择类型、填写标题和描述 |
+| 创建 Task | 创建业务 Task（一个 Task 可包含 plan/build/verify 多个 Run），用户填写标题和描述 |
 | 审批 plan → build | plan Run 完成后，用户审查 plan 产物（Agent 输出的分析结果），批准或拒绝进入 build |
 | 单 Agent 执行单个 Run | 将 Prompt 分发给配置的 Agent（OpenCode），收集状态和产物 |
 | Markdown board | 所有项目/Task/Run 的当前状态汇总为一个可读 Markdown 文件 |
@@ -89,12 +89,13 @@ powershell -ExecutionPolicy Bypass -File tools\ai-coding-console\cli\console.ps1
 | `project list` | — | 列出所有已接入项目及摘要状态 | — | `projects-manifest.json` |
 | `project add` | `--path <路径>` | 注册项目 + 调用 init-project-memory | manifest.json, .ai/ | — |
 | `project status` | `--project <名称>` | 项目当前状态：.ai/ 内容、Git 分支、文件数 | — | .ai/, AGENTS.md, git |
-| `project prompt` | `--project <名称>` | 生成"让 AI 重新理解本项目"的完整 Prompt | `data/tasks/<id>/prompt.md` | .ai/, AGENTS.md, knowledge/ |
-| `task create` | `--project <名称> --type <类型> --desc "..."` | 创建 Task + Prompt | task.json, prompt.md | .ai/, AGENTS.md |
+| `project prompt` | `--project <名称>` | 生成项目上下文 Prompt（输出到终端，不写文件） | — | .ai/, AGENTS.md, knowledge/ |
+| `task create` | `--project <名称> --desc "..."` | 创建 Task + 写入 Prompt | task.json, prompt.md | .ai/, AGENTS.md |
 | `task list` | `--project <名称>` | 列出项目下所有 Task 及状态 | — | data/tasks/ |
-| `task status` | `--task <task-id>` | 查看 Task 详情：状态、最新 Run、审批 | — | task.json, run.json, approval.json |
-| `task dispatch` | `--task <task-id>` | 将 Prompt 分发给 Agent（OpenCode）执行 | run.json, plan.md/build.log | prompt.md, task.json |
-| `task approve` | `--task <task-id> [--reject]` | 审批 plan/build，写审批记录 | approval.json, task.json | plan.md / build.log |
+| `task status` | `--task <task-id>` | 查看 Task 详情：状态、所有 Run、审批 | — | task.json, run.json, approval.json |
+| `task dispatch` | `--task <task-id>` | 对当前 Task 发起下一个 Run（plan/build/verify），写入 runs/ 子目录 | run.json, plan.md/build.log/verify-result.md | prompt.md, task.json |
+| `task approve` | `--task <task-id> [--reject]` | plan 审批（plan Run 完成后），写审批记录到 data/tasks/<id>/approvals/ | approval.json, task.json | plan.md |
+| `task review` | `--task <task-id> [--reject]` | final review（build+verify 完成后），决定关闭或重回 | approval.json, task.json | build.log, verify-result.md |
 | `task close` | `--task <task-id>` | 关闭 Task，写总结报告 | summary.md, task.json, manifest.json | 全部产物 |
 | `board show` | `--project <名称>` | 生成当前项目 Markdown board | `data/board/<name>-board.md` | manifest.json, tasks/, runs/ |
 
@@ -173,8 +174,7 @@ data/
 {
   "taskId": "T-20260705-001",
   "project": "E:\\Program\\my-project",
-  "type": "plan",
-  "title": "分析项目结构",
+  "title": "实现用户登录功能",
   "description": "...",
   "status": "planning",
   "currentRunId": "R-20260705-001-01",
@@ -219,7 +219,7 @@ data/
 
 ## 五、MVP 完整执行流
 
-### 主流程
+### 主流程（单 Task，多 Run）
 
 ```
 用户
@@ -228,29 +228,41 @@ data/
  │
  ├─ 2. project status --project xxx        读取 .ai/ + git
  │
- ├─ 3. project prompt --project xxx        写入 data/tasks/T-001/prompt.md
+ ├─ 3. project prompt --project xxx        终端输出项目上下文 Prompt（不写文件）
  │
- ├─ 4. task create --project xxx          写入 task.json + prompt.md
- │     --type plan --desc "..."
+ ├─ 4. task create --project xxx           写入 task.json + prompt.md
+ │     --desc "实现用户登录功能"             Task 状态: created
  │
- ├─ 5. task dispatch --task T-001         写入 run.json → Agent 执行 → 写入 plan.md
+ ├─ 5. task dispatch --task T-001          创建 runs/R-001 (mode: plan)
+ │                                         写入 run.json → Agent 执行 → plan.md
+ │                                         Task 状态: planning → awaiting_plan_approval
  │
  ├─ 6. [用户阅读 plan.md]
  │
- ├─ 7. task approve --task T-001          写入 approval.json → task.json status → plan_approved
+ ├─ 7. task approve --task T-001           写入 approvals/A-001.json (type: plan_approval)
+ │                                         审批通过 → Task 状态: plan_approved
+ │                                         审批拒绝 → 回到 planning（修改 plan 描述后重试）
  │
- ├─ 8. task create --type build           写入 task.json (status: building)
- │     --desc "按计划修改..."
+ ├─ 8. task dispatch --task T-001          创建 runs/R-002 (mode: build)
+ │                                         写入 run.json → Agent 执行 → build.log
+ │                                         Task 状态: building → build_completed
  │
- ├─ 9. task dispatch --task T-002         Agent 执行 → 修改项目文件 → 写入 build.log
+ ├─ 9. task dispatch --task T-001          创建 runs/R-003 (mode: verify)
+ │                                         写入 run.json → Agent 执行 → verify-result.md
+ │                                         Task 状态: verifying → awaiting_final_review
  │
- ├─10. task approve --task T-002          写入 approval.json → status → build_approved
+ ├─10. [用户审查 build.log + verify-result.md]
  │
- ├─11. task create --type verify
- │    task dispatch → Agent 跑测试 → verify-result.md
+ ├─11. task review --task T-001 --approve  写入 approvals/A-002.json (type: final_review)
+ │                                         Task 状态: completed
  │
- └─12. task close --task T-NNN            写入 summary.md → status → completed
+ └─12. task close --task T-001             写入 reports/T-001-summary.md
 ```
+
+**关键变化**（相比原方案）：
+- T-001 贯穿全程，不再为 plan/build/verify 分别创建 task T-001/T-002/T-003
+- `task dispatch` 对同一 Task 多次调用，每次追加一个 Run 子目录
+- `task approve` 仅处理 plan 审批；新增 `task review` 处理 final review
 
 ### 每步权限
 
@@ -258,12 +270,14 @@ data/
 |---|---|---|---|
 | 项目登记 | — | manifest.json, .ai/ | 否 |
 | 状态读取 | .ai/, AGENTS.md, git | — | 否 |
-| Prompt 生成 | .ai/, AGENTS.md, knowledge/ | prompt.md | 否 |
-| plan Run | prompt.md | plan.md, run.json | **否**（plan 模式严格只读） |
-| plan 审批 | plan.md | approval.json, task.json | 否 |
-| build Run | prompt.md, plan.md | build.log, run.json, 项目文件 | **是**（经审批后） |
-| verify Run | build.log | verify-result.md, run.json | 否 |
-| review / close | 全部产物 | summary.md, task.json, manifest.json | 否 |
+| Prompt 生成（终端输出） | .ai/, AGENTS.md, knowledge/ | — | 否 |
+| 创建 Task | .ai/, AGENTS.md | task.json, prompt.md | 否 |
+| plan Run | prompt.md | plan.md, run.json (R-001/create) | **否**（plan 模式严格只读） |
+| plan 审批 | plan.md | approvals/A-001.json, task.json | 否 |
+| build Run | prompt.md, plan.md | build.log, run.json (R-002/create), 项目文件 | **是**（经 plan 审批后） |
+| verify Run | build.log | verify-result.md, run.json (R-003/create) | 否 |
+| final review | build.log, verify-result.md | approvals/A-002.json, task.json | 否 |
+| 关闭 Task | 全部产物 | summary.md, task.json, manifest.json | 否 |
 
 ### 失败与重试
 
@@ -339,7 +353,7 @@ function Get-OpenCodeSessionStatus {
 
 **不在本阶段修改。** 触发条件：
 1. 第一个 Agent Adapter 实现完成（阶段 D 结束）
-2. 至少跑通一次 plan → approve → build 全流程
+2. 至少跑通一次 plan → approve → build → verify → review 全流程
 3. AGENTS.md Scope 修订方案经用户单独确认
 
 ### 建议修订后内容
@@ -376,7 +390,7 @@ function Get-OpenCodeSessionStatus {
 | 维度 | 内容 |
 |---|---|
 | 目标 | 创建 `tools/ai-coding-console/` 目录、config、CLI 入口骨架；创建 data/ 子目录 |
-| 产物 | `tools/ai-coding-console/` 完整目录、`console-config.json`、`console.ps1`（帮助+参数骨架）、`data/tasks/` `data/board/` `data/reports/` `data/approvals/` |
+| 产物 | `tools/ai-coding-console/` 完整目录、`console-config.json`、`console.ps1`（帮助+参数骨架）、`data/tasks/` `data/board/` `data/reports/` |
 | 可修改 | `tools/ai-coding-console/` 内一切、`data/` 下新增目录 |
 | 不可修改 | 现有 `tools/init-project-memory/`、`tools/sync-codex-home/`、`AGENTS.md`、`config/global.json` |
 | 验证 | 目录存在、config 合法 JSON、`console.ps1 help` 可运行 |
@@ -397,9 +411,9 @@ function Get-OpenCodeSessionStatus {
 
 | 维度 | 内容 |
 |---|---|
-| 目标 | 实现 `task create`、`task list`、`task status`、`task approve`、`task close`、`board show` |
+| 目标 | 实现 `task create`、`task list`、`task status`、`task approve`、`task review`、`task close`、`board show` |
 | 产物 | 完整的 Task 生命周期 CLI（不含 Agent 调用） |
-| 可修改 | `tools/ai-coding-console/cli/console.ps1`、`data/tasks/`、`data/approvals/`、`data/board/`、`data/reports/` |
+| 可修改 | `tools/ai-coding-console/cli/console.ps1`、`data/tasks/`、`data/board/`、`data/reports/` |
 | 不可修改 | 项目代码 |
 | 验证 | 创建 Task → 查看状态 → 手动模拟 Run JSON 写入 → 审批 → 关闭 |
 | 需确认 | board.md 格式 |
@@ -413,7 +427,7 @@ function Get-OpenCodeSessionStatus {
 | 可修改 | `tools/ai-coding-console/cli/agent-adapter.ps1`、`console.ps1` |
 | 不可修改 | OpenCode 本身 |
 | 验证 | plan Run 成功执行并输出 `plan.md`；build Run 成功执行并修改项目文件 |
-| 需确认 | **是**（首次涉及 Agent 修改项目代码，必须人工确认每个 build Run 的审批） |
+| 需确认 | **是**（首次涉及 Agent 修改项目文件，必须在 final review 阶段人工确认所有 build 产物） |
 
 ### 阶段 E：验证、文档与试运行
 
@@ -449,3 +463,15 @@ function Get-OpenCodeSessionStatus {
 ---
 
 > **下一步：用户确认后，从阶段 A 开始逐阶段实施。每阶段完成后提交、验证、确认、再进入下一阶段。**
+
+---
+
+## 技术路线一致性修订（2026-07-04）
+
+| # | 修订项 | 涉及章节 | 内容 |
+|---|---|---|---|
+| 1 | Task/Run 模型统一 | 一、三、四、五 | 单 Task 包含 plan/build/verify 多个 Run；Task 不再有 type 字段；task create 不再需要 --type 参数 |
+| 2 | 审批语义统一 | 三、五、八 | task approve 仅处理 plan approval；新增 task review 处理 final review；删除独立 build_approved 审批节点 |
+| 3 | project prompt 不写文件 | 三、五 | 仅终端输出，不分配 Task ID；仅在 task create 时写入 prompt.md |
+| 4 | 消除 data/approvals/ 独立目录 | 四、八 | Approval 仅存放于 data/tasks/<id>/approvals/；阶段 A/C 产物列表中移除 data/approvals/ |
+| 5 | 跨章节一致性 | 全文件 | 命令名、状态值、执行流、目录结构、task.json schema 全部对齐 |
