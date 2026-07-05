@@ -412,7 +412,7 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
     TMP: tempRoot
   };
 
-  const message = `Plan-only Run for ${taskId}. See attached prompt.md.`;
+  const message = promptText;
   const command = "cmd.exe";
   const args = [
     "/d",
@@ -420,11 +420,11 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
     "/c",
     "opencode.cmd",
     "run",
+    message,
     "--format",
     "json",
     "--file",
-    tempPromptPath,
-    message
+    tempPromptPath
   ];
 
   const startedAt = new Date().toISOString();
