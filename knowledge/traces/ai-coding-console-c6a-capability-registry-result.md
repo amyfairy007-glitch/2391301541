@@ -97,3 +97,36 @@
 ## Commit Hash
 
 - `e0495d5` (`feat: 新增 AI Coding Console 全局能力注册表`)
+
+## Acceptance Check
+
+- Acceptance scope: C.6-A capability registry data, registry reader, and read-only API behavior only.
+- Registry total count: 15.
+- Registry type split: `skill 5`, `sop 2`, `script 4`, `prompt-template 4`, `capability-pack 0`.
+- ID uniqueness: passed.
+- Enum validation: passed for type, status, and risk level.
+- Path validation: passed for all repository-relative `sourcePath` and script `entryFile` values.
+- Relationship validation: passed for all referenced capability IDs.
+- Historical audit/report files were not registered as capabilities.
+
+## API Acceptance
+
+- `GET /api/capabilities`: returned the full registry successfully.
+- `GET /api/capabilities/skill-project-takeover`: returned the expected single entry.
+- Missing capability IDs return a structured JSON error payload.
+
+## Git Acceptance
+
+- `git diff --check`: passed.
+- `git status --short` at the time of this check:
+  - `M data/ai-coding-console/projects-manifest.json`
+  - `M tools/ai-coding-console/gui/app.js`
+  - `M tools/ai-coding-console/gui/index.html`
+- The remaining working-tree changes are Session A UI work, not C.6-A registry files.
+- No new C.6-A-only commit was created in this check because the workspace is not clean enough to isolate a strict registry-only stage boundary.
+
+## Final Conclusion
+
+- C.6-A registry implementation is functionally accepted.
+- C.6-A is not being advanced to a new commit in this check.
+- C.6-B can be considered only for design/prep once Session A UI work is stabilized and the working tree can be cleanly split.
