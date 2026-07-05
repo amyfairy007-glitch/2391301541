@@ -40,24 +40,115 @@ function runCommand(command, args, options) {
       cwd: options.cwd,
       env: options.env,
       windowsHide: true,
-      shell: false
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"]
     });
 
+    const rawOutputPath = options.rawOutputPath || null;
+    const stderrPath = options.stderrPath || null;
+    const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 600000;
     let stdout = "";
     let stderr = "";
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let timedOut = false;
+    let failureReason = null;
+    let finished = false;
+    let timeoutHandle = null;
+    let killTimer = null;
+    let forcedFinalizeTimer = null;
 
     child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      stdout += text;
+      stdoutBytes += Buffer.byteLength(chunk);
+      if (rawOutputPath) {
+        fs.appendFileSync(rawOutputPath, chunk);
+      }
     });
 
     child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      stderr += text;
+      stderrBytes += Buffer.byteLength(chunk);
+      if (stderrPath) {
+        fs.appendFileSync(stderrPath, chunk);
+      }
     });
 
-    child.on("error", reject);
-    child.on("close", (exitCode, signal) => {
-      resolve({ exitCode, signal, stdout, stderr });
+    if (child.stdin) {
+      child.stdin.end();
+    }
+
+    const finalize = (payload) => {
+      if (finished) return;
+      finished = true;
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      if (killTimer) clearTimeout(killTimer);
+      if (forcedFinalizeTimer) clearTimeout(forcedFinalizeTimer);
+      try { child.stdout?.removeAllListeners(); } catch {}
+      try { child.stderr?.removeAllListeners(); } catch {}
+      try { child.stdin?.removeAllListeners(); } catch {}
+      try { child.stdout?.destroy(); } catch {}
+      try { child.stderr?.destroy(); } catch {}
+      try { child.stdin?.destroy(); } catch {}
+      try { child.removeAllListeners(); } catch {}
+      resolve({
+        exitCode: payload.exitCode ?? null,
+        signal: payload.signal ?? null,
+        stdout: payload.stdout ?? stdout,
+        stderr: payload.stderr ?? stderr,
+        stdoutBytes,
+        stderrBytes,
+        timedOut,
+        failureReason,
+        error: payload.error || null
+      });
+    };
+
+    const forceKillTree = () => {
+      if (!child.pid) return;
+      try {
+        const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+          windowsHide: true,
+          shell: false,
+          stdio: "ignore"
+        });
+        killer.on("error", () => {});
+      } catch (err) {
+        // Ignore best-effort kill failures; the forced finalize fallback below will still close the run.
+      }
+    };
+
+    child.on("error", (err) => {
+      failureReason = `spawn_error: ${err.message}`;
+      finalize({ exitCode: null, signal: null, error: err.message });
     });
+
+    child.on("close", (exitCode, signal) => {
+      finalize({ exitCode, signal });
+    });
+
+    timeoutHandle = setTimeout(() => {
+      if (finished) return;
+      timedOut = true;
+      failureReason = "timeout";
+      forceKillTree();
+
+      killTimer = setTimeout(() => {
+        if (finished) return;
+        forceKillTree();
+      }, 2000);
+
+      forcedFinalizeTimer = setTimeout(() => {
+        if (finished) return;
+        finalize({
+          exitCode: null,
+          signal: "timeout",
+          error: "timeout_kill_pending"
+        });
+      }, 5000);
+    }, timeoutMs);
   });
 }
 
@@ -373,8 +464,12 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
 
   const tempWorkspace = path.join(os.tmpdir(), `ai-coding-console-opencode-${runId}`);
   const tempPromptPath = path.join(tempWorkspace, "prompt.md");
+  const tempRawOutputPath = path.join(tempWorkspace, "agent-raw.jsonl");
+  const tempStderrPath = path.join(tempWorkspace, "opencode-stderr.log");
   fs.mkdirSync(tempWorkspace, { recursive: true });
   fs.writeFileSync(tempPromptPath, promptText, "utf8");
+  fs.writeFileSync(tempRawOutputPath, "", "utf8");
+  fs.writeFileSync(tempStderrPath, "", "utf8");
 
   const preStatus = await runGit(repoRoot, ["status", "--short", "--untracked-files=no"]);
   const preHead = await runGit(repoRoot, ["rev-parse", "--short", "HEAD"]);
@@ -428,11 +523,19 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
   ];
 
   const startedAt = new Date().toISOString();
-  const execResult = await runCommand(command, args, { cwd: repoRoot, env });
+  const timeoutMs = Number(process.env.AI_CODING_CONSOLE_OPENCODE_TIMEOUT_MS || 600000);
+  const execResult = await runCommand(command, args, {
+    cwd: repoRoot,
+    env,
+    timeoutMs,
+    rawOutputPath: tempRawOutputPath,
+    stderrPath: tempStderrPath
+  });
   const finishedAt = new Date().toISOString();
 
-  const parsed = parsePlanFromRawOutput(execResult.stdout);
-  const rawOutput = String(execResult.stdout || "");
+  const rawOutput = readText(tempRawOutputPath);
+  const parsed = parsePlanFromRawOutput(rawOutput || execResult.stdout || "");
+  const stderrOutput = readText(tempStderrPath) || String(execResult.stderr || "");
   const planText = parsed.text && parsed.text.trim()
     ? parsed.text.trim()
     : [
@@ -451,8 +554,8 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
   const postSnapshot = buildGitSnapshot("post", postStatus, postHead, postBranch);
   const trackedChangesDetected = Boolean(String(postSnapshot.statusShort || "").trim());
 
-  const safetyVerdict = trackedChangesDetected ? "unsafe_modified" : (execResult.exitCode === 0 ? "completed" : "failed");
-  const status = trackedChangesDetected ? "unsafe_modified" : (execResult.exitCode === 0 ? "completed" : "failed");
+  const safetyVerdict = trackedChangesDetected ? "unsafe_modified" : (execResult.timedOut ? "timed_out" : (execResult.exitCode === 0 ? "completed" : "failed"));
+  const status = trackedChangesDetected ? "unsafe_modified" : (execResult.timedOut ? "timed_out" : (execResult.exitCode === 0 ? "completed" : "failed"));
   const approvalStatus = status === "completed" ? "pending" : "not_opened";
   const runRecord = {
     runId,
@@ -466,7 +569,11 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
     finishedAt,
     sessionRef: parsed.sessionRef || null,
     exitCode: execResult.exitCode,
-    error: execResult.exitCode === 0 ? null : (execResult.stderr || "opencode_plan_failed").trim().slice(0, 1000) || null,
+    error: status === "completed" ? null : (execResult.timedOut ? "opencode_plan_timed_out" : (stderrOutput || execResult.error || "opencode_plan_failed")).trim().slice(0, 1000) || null,
+    timeoutMs,
+    stdoutBytes: execResult.stdoutBytes || 0,
+    stderrBytes: execResult.stderrBytes || 0,
+    failureReason: execResult.timedOut ? "timeout" : (execResult.error ? "spawn_error" : (execResult.exitCode === 0 ? null : "non_zero_exit")),
     planPath: path.relative(repoRoot, getRunPlanPath(repoRoot, taskId, runId)),
     rawOutputPath: path.relative(repoRoot, getRunRawOutputPath(repoRoot, taskId, runId)),
     promptPath: path.relative(repoRoot, getRunPromptPath(repoRoot, taskId, runId)),
@@ -489,6 +596,10 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
     safetyVerdict,
     trackedChangesDetected,
     changedFiles: postSnapshot.changedFiles,
+    timeoutMs,
+    stdoutBytes: execResult.stdoutBytes || 0,
+    stderrBytes: execResult.stderrBytes || 0,
+    failureReason: execResult.timedOut ? "timeout" : (execResult.error ? "spawn_error" : (execResult.exitCode === 0 ? null : "non_zero_exit")),
     pre: preSnapshot,
     post: postSnapshot,
     opencode: {
@@ -496,7 +607,7 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
       args,
       exitCode: execResult.exitCode,
       signal: execResult.signal || null,
-      stderr: execResult.stderr || "",
+      stderr: stderrOutput || "",
       sessionRef: parsed.sessionRef || null
     }
   };
@@ -523,8 +634,97 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
   };
 }
 
+async function runOpenCodeSmoke({ repoRoot, timeoutMs = 10000 }) {
+  const tempWorkspace = path.join(os.tmpdir(), `ai-coding-console-opencode-smoke-${Date.now()}`);
+  const tempPromptPath = path.join(tempWorkspace, "prompt.md");
+  const tempRawOutputPath = path.join(tempWorkspace, "agent-raw.jsonl");
+  const tempStderrPath = path.join(tempWorkspace, "opencode-stderr.log");
+  fs.mkdirSync(tempWorkspace, { recursive: true });
+  fs.writeFileSync(tempPromptPath, [
+    "你正在执行 Plan-only Run。",
+    "你只能读取、分析和输出计划。",
+    "禁止创建、修改、删除、移动或重命名任何文件。",
+    "## 实施计划",
+    "### 验证方案",
+    "- smoke"
+  ].join("\n"), "utf8");
+  fs.writeFileSync(tempRawOutputPath, "", "utf8");
+  fs.writeFileSync(tempStderrPath, "", "utf8");
+
+  const configRoot = path.join(tempWorkspace, "config");
+  const homeRoot = path.join(tempWorkspace, "home");
+  const userProfileRoot = path.join(tempWorkspace, "userprofile");
+  const tempRoot = path.join(tempWorkspace, "tmp");
+  for (const dir of [configRoot, homeRoot, userProfileRoot, tempRoot]) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  const env = {
+    ...process.env,
+    USERPROFILE: userProfileRoot,
+    HOME: homeRoot,
+    XDG_CONFIG_HOME: configRoot,
+    TEMP: tempRoot,
+    TMP: tempRoot
+  };
+
+  const startedAt = new Date().toISOString();
+  const result = await runCommand(
+    "cmd.exe",
+    [
+      "/d",
+      "/s",
+      "/c",
+      "opencode.cmd",
+      "run",
+      "Plan-only smoke",
+      "--format",
+      "json",
+      "--file",
+      tempPromptPath
+    ],
+    {
+      cwd: repoRoot,
+      env,
+      timeoutMs,
+      rawOutputPath: tempRawOutputPath,
+      stderrPath: tempStderrPath
+    }
+  );
+  const finishedAt = new Date().toISOString();
+
+  return {
+    ok: true,
+    startedAt,
+    finishedAt,
+    command: "cmd.exe",
+    args: [
+      "/d",
+      "/s",
+      "/c",
+      "opencode.cmd",
+      "run",
+      "Plan-only smoke",
+      "--format",
+      "json",
+      "--file",
+      tempPromptPath
+    ],
+    timeoutMs,
+    exitCode: result.exitCode,
+    signal: result.signal,
+    timedOut: result.timedOut,
+    failureReason: result.failureReason,
+    stdoutBytes: result.stdoutBytes || 0,
+    stderrBytes: result.stderrBytes || 0,
+    stdoutPreview: String(result.stdout || "").slice(0, 1200),
+    stderrPreview: String(result.stderr || "").slice(0, 1200)
+  };
+}
+
 module.exports = {
   buildPlanPrompt,
   parsePlanFromRawOutput,
-  runOpenCodePlan
+  runOpenCodePlan,
+  runOpenCodeSmoke
 };
