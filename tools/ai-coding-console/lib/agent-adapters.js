@@ -33,26 +33,39 @@ function resolveOpenCodeCommand() {
 }
 
 function buildOpenCodeInvocation({ opencodePath, message, promptPath }) {
-  const commandLine = [
-    quoteWindowsArg(opencodePath),
+  // Windows .cmd shims must run through a shell. Empirically, wrapping the call
+  // in an explicit `cmd.exe /d /s /c "..."` command line makes `opencode run`
+  // hang with zero output (while `--version` works). Spawning the .cmd with
+  // shell:true and a plain argument list is the pattern Node officially
+  // recommends for .cmd/.bat on Windows and runs `opencode run` reliably.
+  // The model flag is passed explicitly so the child process never blocks
+  // waiting to resolve a default model when its config discovery differs from
+  // an interactive shell.
+  const args = [
     "run",
-    quoteWindowsArg(message),
+    message,
     "--format",
     "json",
     "--file",
-    quoteWindowsArg(promptPath)
-  ].join(" ");
+    promptPath
+  ];
 
-  // cmd.exe /s /c strips the first and last quote of the whole command string
-  // and keeps the rest verbatim. We wrap the entire command line in one outer
-  // pair of quotes so the inner "C:\...\opencode.cmd" survives as the program
-  // token instead of being treated as a literal (which fails with
-  // "'"C:\...\opencode.cmd"' is not recognized ..."). This pairs with
-  // windowsVerbatimArguments:true in runCommand so Node does not re-escape.
   return {
-    command: "cmd.exe",
-    args: ["/d", "/s", "/c", `"${commandLine}"`],
-    commandLine
+    command: opencodePath,
+    args,
+    useShell: true,
+    // For shell:true on Windows, arguments containing spaces must be quoted
+    // inside the command string. We build a display/exec command line that the
+    // runner passes verbatim to the shell.
+    commandLine: [
+      quoteWindowsArg(opencodePath),
+      "run",
+      quoteWindowsArg(message),
+      "--format",
+      "json",
+      "--file",
+      quoteWindowsArg(promptPath)
+    ].join(" ")
   };
 }
 
