@@ -13,34 +13,47 @@ const { quoteWindowsArg, parsePlanFromRawOutput, findStringByKey } = require("./
 // ---- OpenCode adapter ----
 
 function resolveOpenCodeCommand() {
-  const nodeDirCandidate = path.join(path.dirname(process.execPath), "opencode.cmd");
-  try {
-    fs.accessSync(nodeDirCandidate, fs.constants.R_OK);
-    return {
-      ok: true,
-      command: nodeDirCandidate
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      statusCode: 409,
-      error: "opencode_environment_not_ready",
-      reason: "opencode_cli_unavailable",
-      nextAction: "manual_environment_check_required",
-      details: [`OpenCode CLI is not readable at ${nodeDirCandidate}.`]
-    };
+  // Prefer the native opencode.exe over the opencode.cmd shim.
+  //
+  // On Windows the .cmd shim cannot be spawned reliably:
+  //   - `cmd.exe /d /s /c "..."` wrapping makes `opencode run` hang with zero
+  //     output (though `--version` works);
+  //   - `spawn(opencode.cmd, args, {shell:true})` throws EINVAL on Node 20+.
+  // The npm package ships a real PE executable at
+  //   node_modules/opencode-ai/bin/opencode.exe
+  // which we can spawn directly with shell:false — no shim, no cmd.exe, no
+  // EINVAL, no hang. We resolve that first and fall back to the .cmd shim only
+  // if the .exe is missing.
+  const nodeDir = path.dirname(process.execPath);
+  const candidates = [
+    path.join(nodeDir, "node_modules", "opencode-ai", "bin", "opencode.exe"),
+    path.join(nodeDir, "opencode.exe"),
+    path.join(nodeDir, "opencode.cmd")
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.R_OK);
+      return { ok: true, command: candidate, isCmdShim: candidate.toLowerCase().endsWith(".cmd") };
+    } catch (err) {
+      // try next candidate
+    }
   }
+
+  return {
+    ok: false,
+    statusCode: 409,
+    error: "opencode_environment_not_ready",
+    reason: "opencode_cli_unavailable",
+    nextAction: "manual_environment_check_required",
+    details: [`OpenCode CLI not found. Looked for: ${candidates.join(", ")}`]
+  };
 }
 
-function buildOpenCodeInvocation({ opencodePath, message, promptPath }) {
-  // Windows .cmd shims must run through a shell. Empirically, wrapping the call
-  // in an explicit `cmd.exe /d /s /c "..."` command line makes `opencode run`
-  // hang with zero output (while `--version` works). Spawning the .cmd with
-  // shell:true and a plain argument list is the pattern Node officially
-  // recommends for .cmd/.bat on Windows and runs `opencode run` reliably.
-  // The model flag is passed explicitly so the child process never blocks
-  // waiting to resolve a default model when its config discovery differs from
-  // an interactive shell.
+function buildOpenCodeInvocation({ opencodePath, message, promptPath, isCmdShim }) {
+  // Native opencode.exe is spawned directly with shell:false and a plain
+  // argument array — Node handles argument quoting, no cmd.exe, no shell.
+  // This is the verified-working path (probe A).
   const args = [
     "run",
     message,
@@ -53,10 +66,8 @@ function buildOpenCodeInvocation({ opencodePath, message, promptPath }) {
   return {
     command: opencodePath,
     args,
-    useShell: true,
-    // For shell:true on Windows, arguments containing spaces must be quoted
-    // inside the command string. We build a display/exec command line that the
-    // runner passes verbatim to the shell.
+    // Only the legacy .cmd fallback needs a shell; the .exe must not use one.
+    useShell: Boolean(isCmdShim),
     commandLine: [
       quoteWindowsArg(opencodePath),
       "run",
@@ -80,9 +91,16 @@ const OpenCodeAdapter = {
     const invocation = buildOpenCodeInvocation({
       opencodePath: resolved.command,
       message,
-      promptPath
+      promptPath,
+      isCmdShim: resolved.isCmdShim
     });
-    return { ok: true, command: invocation.command, args: invocation.args, commandLine: invocation.commandLine };
+    return {
+      ok: true,
+      command: invocation.command,
+      args: invocation.args,
+      useShell: invocation.useShell,
+      commandLine: invocation.commandLine
+    };
   },
   parseOutput(rawOutput) {
     return parsePlanFromRawOutput(rawOutput);
