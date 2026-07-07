@@ -205,6 +205,26 @@ function buildGitSnapshot(label, statusResult, headResult, branchResult) {
   };
 }
 
+function resolveOpenCodeCommand() {
+  const nodeDirCandidate = path.join(path.dirname(process.execPath), "opencode.cmd");
+  try {
+    fs.accessSync(nodeDirCandidate, fs.constants.R_OK);
+    return {
+      ok: true,
+      command: nodeDirCandidate
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "opencode_environment_not_ready",
+      reason: "opencode_cli_unavailable",
+      nextAction: "manual_environment_check_required",
+      details: [`OpenCode CLI is not readable at ${nodeDirCandidate}.`]
+    };
+  }
+}
+
 function extractTextFromJsonEvent(value, state) {
   if (!value || state.done) return;
   if (typeof value === "string") {
@@ -471,6 +491,40 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
   fs.writeFileSync(tempRawOutputPath, "", "utf8");
   fs.writeFileSync(tempStderrPath, "", "utf8");
 
+  const opencodeCommand = resolveOpenCodeCommand();
+  if (!opencodeCommand.ok) {
+    try {
+      fs.rmSync(tempWorkspace, { recursive: true, force: true });
+    } catch (err) {
+      // Ignore cleanup failures.
+    }
+    return {
+      ok: false,
+      statusCode: opencodeCommand.statusCode || 409,
+      error: opencodeCommand.error || "opencode_environment_not_ready",
+      reason: opencodeCommand.reason || "opencode_cli_unavailable",
+      nextAction: opencodeCommand.nextAction || "manual_environment_check_required",
+      details: opencodeCommand.details || [],
+      baseline: {
+        taskId,
+        runId,
+        projectId,
+        readOnlyEnforcement: "prompt_and_post_run_git_check",
+        safetyVerdict: "environment_not_ready",
+        pre: null,
+        post: null,
+        changedFiles: [],
+        timeoutMs: null,
+        stdoutBytes: 0,
+        stderrBytes: 0,
+        failureReason: "environment_not_ready",
+        guard: {
+          opencodeCommand: opencodeCommand.command || null
+        }
+      }
+    };
+  }
+
   const preStatus = await runGit(repoRoot, ["status", "--short", "--untracked-files=no"]);
   const preHead = await runGit(repoRoot, ["rev-parse", "--short", "HEAD"]);
   const preBranch = await runGit(repoRoot, ["branch", "--show-current"]);
@@ -490,21 +544,8 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
     };
   }
 
-  const configRoot = path.join(tempWorkspace, "config");
-  const homeRoot = path.join(tempWorkspace, "home");
-  const userProfileRoot = path.join(tempWorkspace, "userprofile");
-  const tempRoot = path.join(tempWorkspace, "tmp");
-  for (const dir of [configRoot, homeRoot, userProfileRoot, tempRoot]) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-
   const env = {
-    ...process.env,
-    USERPROFILE: userProfileRoot,
-    HOME: homeRoot,
-    XDG_CONFIG_HOME: configRoot,
-    TEMP: tempRoot,
-    TMP: tempRoot
+    ...process.env
   };
 
   const message = `Plan-only run ${taskId}`;
@@ -513,7 +554,7 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
     "/d",
     "/s",
     "/c",
-    "opencode.cmd",
+    opencodeCommand.command,
     "run",
     message,
     "--format",
@@ -584,7 +625,8 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
       command,
       args,
       tempPromptPath,
-      tempWorkspace
+      tempWorkspace,
+      inheritedUserEnv: true
     }
   };
 
@@ -651,21 +693,25 @@ async function runOpenCodeSmoke({ repoRoot, timeoutMs = 10000 }) {
   fs.writeFileSync(tempRawOutputPath, "", "utf8");
   fs.writeFileSync(tempStderrPath, "", "utf8");
 
-  const configRoot = path.join(tempWorkspace, "config");
-  const homeRoot = path.join(tempWorkspace, "home");
-  const userProfileRoot = path.join(tempWorkspace, "userprofile");
-  const tempRoot = path.join(tempWorkspace, "tmp");
-  for (const dir of [configRoot, homeRoot, userProfileRoot, tempRoot]) {
-    fs.mkdirSync(dir, { recursive: true });
+  const opencodeCommand = resolveOpenCodeCommand();
+  if (!opencodeCommand.ok) {
+    try {
+      fs.rmSync(tempWorkspace, { recursive: true, force: true });
+    } catch (err) {
+      // Ignore cleanup failures.
+    }
+    return {
+      ok: false,
+      statusCode: opencodeCommand.statusCode || 409,
+      error: opencodeCommand.error || "opencode_environment_not_ready",
+      reason: opencodeCommand.reason || "opencode_cli_unavailable",
+      nextAction: opencodeCommand.nextAction || "manual_environment_check_required",
+      details: opencodeCommand.details || []
+    };
   }
 
   const env = {
-    ...process.env,
-    USERPROFILE: userProfileRoot,
-    HOME: homeRoot,
-    XDG_CONFIG_HOME: configRoot,
-    TEMP: tempRoot,
-    TMP: tempRoot
+    ...process.env
   };
 
   const startedAt = new Date().toISOString();
@@ -675,7 +721,7 @@ async function runOpenCodeSmoke({ repoRoot, timeoutMs = 10000 }) {
       "/d",
       "/s",
       "/c",
-      "opencode.cmd",
+      opencodeCommand.command,
       "run",
       "Plan-only smoke",
       "--format",
@@ -702,7 +748,7 @@ async function runOpenCodeSmoke({ repoRoot, timeoutMs = 10000 }) {
       "/d",
       "/s",
       "/c",
-      "opencode.cmd",
+      opencodeCommand.command,
       "run",
       "Plan-only smoke",
       "--format",
@@ -725,6 +771,7 @@ async function runOpenCodeSmoke({ repoRoot, timeoutMs = 10000 }) {
 module.exports = {
   buildPlanPrompt,
   parsePlanFromRawOutput,
+  resolveOpenCodeCommand,
   runOpenCodePlan,
   runOpenCodeSmoke
 };
