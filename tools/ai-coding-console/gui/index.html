@@ -220,15 +220,26 @@ button{border:0;background:none;color:inherit}
 .sop-preview{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(320px,.7fr);gap:12px;padding:14px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.02)}
 .sop-preview-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;grid-column:1 / -1;padding-bottom:2px}
 .sop-preview h4,.work-column h4{margin:4px 0 0;font-size:18px}
-.sop-timeline{display:flex;flex-direction:column;gap:10px;padding-right:6px}
-.sop-step{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.02);color:var(--text-secondary)}
-.sop-step span{width:28px;height:28px;border-radius:999px;display:grid;place-items:center;background:rgba(255,255,255,.04);color:var(--text-body);font-weight:700}
-.sop-step strong{flex:1}
-.sop-step em{font-style:normal;color:var(--text-muted);font-size:12px}
-.sop-step.done{border-color:rgba(68,209,157,.3)}
-.sop-step.done span{background:rgba(68,209,157,.16);color:var(--status-success)}
-.sop-step.active{border-color:rgba(89,195,195,.45);background:rgba(89,195,195,.12)}
-.sop-step.active span{background:rgba(89,195,195,.2);color:var(--text-primary)}
+.sop-timeline{display:flex;flex-direction:column;gap:12px;padding-right:6px}
+.sop-step{display:grid;grid-template-columns:36px minmax(0,1fr) auto;align-items:start;gap:14px;padding:16px 18px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.02);color:var(--text-secondary)}
+.sop-node{width:36px;height:36px;border-radius:999px;display:grid;place-items:center;background:rgba(255,255,255,.04);color:var(--text-body);font-weight:700;font-size:13px;border:2px solid var(--line-strong)}
+.sop-step-main{display:flex;flex-direction:column;gap:6px;min-width:0}
+.sop-step-title{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.sop-step-title .sop-step-code{color:var(--text-muted);font-size:13px;font-weight:700;letter-spacing:.02em}
+.sop-step-title strong{font-size:15px;color:var(--text-primary)}
+.sop-step-desc{color:var(--text-muted);font-size:13px;line-height:1.5}
+.sop-step-side{display:flex;flex-direction:column;align-items:flex-end;gap:6px;text-align:right;min-width:120px;max-width:200px}
+.sop-artifact{display:flex;align-items:baseline;gap:6px;font-size:12px;color:var(--text-secondary);max-width:100%}
+.sop-artifact em{font-style:normal;color:var(--text-disabled);font-size:11px;flex:0 0 auto}
+.sop-artifact strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.sop-state{font-size:12px;color:var(--text-muted)}
+.sop-state .sop-approval{display:inline-block;margin-right:6px;padding:2px 7px;border-radius:999px;background:rgba(243,201,105,.14);color:var(--status-waiting);font-size:11px}
+.sop-step.done{border-color:rgba(68,209,157,.28)}
+.sop-step.done .sop-node{background:rgba(68,209,157,.16);color:var(--status-success);border-color:rgba(68,209,157,.45)}
+.sop-step.done .sop-state{color:var(--status-success)}
+.sop-step.active{border-color:rgba(89,195,195,.45);background:rgba(89,195,195,.08)}
+.sop-step.active .sop-node{background:var(--accent);color:#04121a;border-color:var(--accent);box-shadow:0 0 0 4px rgba(89,195,195,.14)}
+.sop-step.active .sop-state{color:var(--accent)}
 .sop-side{display:flex;flex-direction:column;gap:12px}
 .demo-inline{align-self:flex-start;padding-inline:12px}
 .real-workbench-grid{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:8px}
@@ -280,9 +291,6 @@ button{border:0;background:none;color:inherit}
 .sop-section,.prompt-section,.final-section{display:flex;flex-direction:column;gap:12px;padding:14px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.02)}
 .section-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .section-head h4{margin:0;font-size:16px}
-.sop-step-meta{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
-.sop-step{flex-wrap:wrap}
-.sop-step em{width:100%;margin-left:38px}
 .copy-btn{padding:4px 10px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.04);color:var(--text-body);cursor:pointer;font-size:12px;margin-left:8px}
 .copy-btn:hover{border-color:rgba(89,195,195,.35);color:var(--text-primary)}
 .final-prompt-preview{max-height:400px;overflow:auto}

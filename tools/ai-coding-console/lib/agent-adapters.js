@@ -43,9 +43,15 @@ function buildOpenCodeInvocation({ opencodePath, message, promptPath }) {
     quoteWindowsArg(promptPath)
   ].join(" ");
 
+  // cmd.exe /s /c strips the first and last quote of the whole command string
+  // and keeps the rest verbatim. We wrap the entire command line in one outer
+  // pair of quotes so the inner "C:\...\opencode.cmd" survives as the program
+  // token instead of being treated as a literal (which fails with
+  // "'"C:\...\opencode.cmd"' is not recognized ..."). This pairs with
+  // windowsVerbatimArguments:true in runCommand so Node does not re-escape.
   return {
     command: "cmd.exe",
-    args: ["/d", "/s", "/c", commandLine],
+    args: ["/d", "/s", "/c", `"${commandLine}"`],
     commandLine
   };
 }

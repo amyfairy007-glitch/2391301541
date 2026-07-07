@@ -47,6 +47,11 @@ function runCommand(command, args, options) {
       env: options.env,
       windowsHide: true,
       shell: false,
+      // We pre-quote the cmd.exe command line ourselves (see
+      // buildOpenCodeInvocation). Without verbatim args, Node re-escapes the
+      // inner quotes with backslashes, which cmd.exe does not understand and
+      // which breaks the "C:\...\opencode.cmd" program token.
+      windowsVerbatimArguments: true,
       stdio: ["pipe", "pipe", "pipe"]
     });
 

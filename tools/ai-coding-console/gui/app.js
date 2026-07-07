@@ -1369,11 +1369,31 @@ function renderSopPreviewPanel() {
             <button class="ghost-btn" onclick="window.consoleWorkbench.showBannerNotice()">编辑本步骤指令</button>
           </div>
           <div class="sop-timeline">
-            <div class="sop-step done"><span>1</span><strong>需求澄清</strong><em>已完成</em></div>
-            <div class="sop-step done"><span>2</span><strong>选择能力</strong><em>已完成</em></div>
-            <div class="sop-step active"><span>3</span><strong>生成任务专属 SOP</strong><em>当前步骤</em></div>
-            <div class="sop-step"><span>4</span><strong>编辑最终 Prompt</strong><em>待开始</em></div>
-            <div class="sop-step"><span>5</span><strong>执行当前步骤</strong><em>待开始</em></div>
+            <div class="sop-step done">
+              <div class="sop-node">✓</div>
+              <div class="sop-step-main"><div class="sop-step-title"><span class="sop-step-code">S1</span><strong>需求澄清</strong></div><div class="sop-step-desc">明确任务目标与范围。</div></div>
+              <div class="sop-step-side"><div class="sop-artifact"><em>产物</em><strong>clarify.md</strong></div><div class="sop-state">已完成</div></div>
+            </div>
+            <div class="sop-step done">
+              <div class="sop-node">✓</div>
+              <div class="sop-step-main"><div class="sop-step-title"><span class="sop-step-code">S2</span><strong>选择能力</strong></div><div class="sop-step-desc">绑定 Skill / SOP 作为输入。</div></div>
+              <div class="sop-step-side"><div class="sop-artifact"><em>产物</em><strong>capability-summary.md</strong></div><div class="sop-state">已完成</div></div>
+            </div>
+            <div class="sop-step active">
+              <div class="sop-node">3</div>
+              <div class="sop-step-main"><div class="sop-step-title"><span class="sop-step-code">S3</span><strong>生成任务专属 SOP</strong></div><div class="sop-step-desc">把想法转成结构化 SOP 草稿。</div></div>
+              <div class="sop-step-side"><div class="sop-artifact"><em>产物</em><strong>sop.json</strong></div><div class="sop-state">进行中</div></div>
+            </div>
+            <div class="sop-step">
+              <div class="sop-node">4</div>
+              <div class="sop-step-main"><div class="sop-step-title"><span class="sop-step-code">S4</span><strong>编辑最终 Prompt</strong></div><div class="sop-step-desc">审核并补充要求。</div></div>
+              <div class="sop-step-side"><div class="sop-artifact"><em>产物</em><strong>prompt-draft.md</strong></div><div class="sop-state">待执行</div></div>
+            </div>
+            <div class="sop-step">
+              <div class="sop-node">5</div>
+              <div class="sop-step-main"><div class="sop-step-title"><span class="sop-step-code">S5</span><strong>执行当前步骤</strong></div><div class="sop-step-desc">生成可交付 Final Prompt。</div></div>
+              <div class="sop-step-side"><div class="sop-artifact"><em>产物</em><strong>final-prompt.md</strong></div><div class="sop-state">待执行</div></div>
+            </div>
           </div>
           <div class="sop-side">
             <div class="summary-card">
@@ -1688,19 +1708,39 @@ function renderCapabilityBrowser() {
   `;
 }
 
+// SOP 步骤状态 → { cls, node, label }。仅在数据存在时显示时间，绝不造假。
+function sopStepStatusView(step, index) {
+  const raw = String(step.status || "pending").toLowerCase();
+  const time = step.completedAt || step.finishedAt || step.updatedAt || "";
+  if (raw === "done" || raw === "completed") {
+    return { cls: "done", node: "✓", label: time ? `完成 ${formatDate(time)}` : "已完成" };
+  }
+  if (raw === "active" || raw === "running" || raw === "in_progress") {
+    return { cls: "active", node: String(index + 1), label: "进行中" };
+  }
+  return { cls: "", node: String(index + 1), label: "等待中" };
+}
+
 function renderSopTimeline(steps) {
   if (!steps || !steps.length) return '<div class="empty-state compact"><span>暂无 SOP 步骤。</span></div>';
-  return steps.map((step) => {
-    const statusClass = step.status === "active" ? "sop-step active" : step.status === "done" || step.status === "completed" ? "sop-step done" : "sop-step";
+  return steps.map((step, index) => {
+    const view = sopStepStatusView(step, index);
+    const artifacts = Array.isArray(step.expectedArtifacts) ? step.expectedArtifacts.filter(Boolean) : [];
+    const artifact = artifacts.length ? artifacts.join(", ") : "";
     return `
-      <div class="${statusClass}">
-        <span>${escapeHTML(step.id)}</span>
-        <strong>${escapeHTML(step.title)}</strong>
-        <em>${escapeHTML(step.purpose)}</em>
-        <span class="sop-step-meta">
-          ${step.requiresApproval ? '<span class="status-tag">需审批</span>' : ""}
-          <span class="status-tag">${escapeHTML(step.expectedArtifacts && step.expectedArtifacts.length ? step.expectedArtifacts.join(", ") : "")}</span>
-        </span>
+      <div class="sop-step ${view.cls}">
+        <div class="sop-node">${view.node}</div>
+        <div class="sop-step-main">
+          <div class="sop-step-title">
+            <span class="sop-step-code">${escapeHTML(step.id || `S${index + 1}`)}</span>
+            <strong>${escapeHTML(step.title || "未命名步骤")}</strong>
+          </div>
+          <div class="sop-step-desc">${escapeHTML(step.purpose || "")}</div>
+        </div>
+        <div class="sop-step-side">
+          ${artifact ? `<div class="sop-artifact"><em>产物</em><strong title="${escapeHTML(artifact)}">${escapeHTML(artifact)}</strong></div>` : ""}
+          <div class="sop-state">${step.requiresApproval ? '<span class="sop-approval">需审批</span>' : ""}${escapeHTML(view.label)}</div>
+        </div>
       </div>
     `;
   }).join("");
