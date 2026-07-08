@@ -24,8 +24,60 @@
 |---|---|
 | `AGENTS.md` | OpenCode 自动读取的全局规则文件。包含协作模式、产物要求、开发规则。 |
 | `README.md` | 本文件，仓库使用说明。 |
-| `package.json` | Node 项目根配置。当前无依赖、无 scripts，后续工具可按需注册命令。 |
+| `package.json` | Node 项目根配置。提供 `gui` / `start` / `check` / `test` 脚本。 |
 | `.gitignore` | Git 忽略规则。 |
+
+
+## 安装、启动、测试
+
+### 环境要求
+
+- Node.js 18+
+- npm
+- PowerShell（用于 Windows 下执行 `tools/*.ps1` 工具）
+
+当前仓库没有第三方 npm 依赖，`npm install` 主要用于验证 Node 项目入口和生成本地 npm 元数据；如果后续新增依赖，应同步更新 `package.json` 和本节说明。
+
+### 安装
+
+```powershell
+npm install
+```
+
+### 启动 AI Coding Console
+
+```powershell
+npm run gui
+```
+
+等价命令：
+
+```powershell
+npm run start
+```
+
+### 测试 / 语法检查
+
+```powershell
+npm run check
+npm test
+```
+
+当前 `check` 会对 `tools/ai-coding-console/` 下的核心 JavaScript 文件执行 `node --check`，用于确认基础语法和入口脚本没有明显错误。
+
+### 常用工具命令
+
+初始化某个项目的 `.ai/` 记忆结构：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\init-project-memory\init-project-memory.ps1 -ProjectPath "E:\Path\To\YourProject"
+```
+
+同步本仓库的 `AGENTS.md` 到 OpenCode 家目录：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\sync-codex-home\sync-codex-home.ps1
+```
 
 ## 当前已有工具
 
@@ -105,6 +157,6 @@ powershell -ExecutionPolicy Bypass -File tools\sync-codex-home\sync-codex-home.p
 
 ## 当前状态
 
-- 顶层架构对齐：阶段一（知识文档归位）✅、阶段二（脚本与模板迁移）✅、阶段三（README 更新）✅
+- 顶层架构对齐：阶段一（知识文档归位）✅、阶段二（脚本与模板迁移）✅、阶段三（README 更新）✅、工程入口补齐（安装/启动/测试）✅
 - 多项目 AI Coding 工作台：尚未开发，将在现有工具库能力接管完成后增量设计
 - 后续计划：先完成现有工具库能力确认，再基于现有结构增量接入工作台功能

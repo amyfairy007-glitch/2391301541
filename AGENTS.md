@@ -9,6 +9,51 @@ This repository is the shared, syncable Codex configuration source for all proje
 - Do not store secrets, tokens, account caches, or login state here.
 - Keep this repository portable and Git-friendly.
 
+
+## Repository Boundaries
+
+This repository is a portable personal AI toolkit. Keep responsibilities separated by top-level directory:
+
+- `AGENTS.md`: global AI/Codex rule entry.
+- `README.md`: human onboarding entry; must explain install, run, and test commands.
+- `package.json`: Node command registry for local tools.
+- `config/`: shared configuration used across tools.
+- `knowledge/flows/`: reusable SOPs, workflows, operating methods, and long-lived rules.
+- `knowledge/traces/`: audits, architecture notes, project analyses, design records, and traceable research outputs.
+- `data/`: durable project/task state, execution records, validation records, manifests, reports indexes, failures, retries, and handoffs.
+- `tools/`: executable reusable tools, templates, and tool-specific configuration.
+- `docs/`: temporary or imported project documentation only when the user explicitly requests this location; prefer `knowledge/flows/` for long-lived SOPs.
+
+## Forbidden Actions
+
+Do not do the following without explicit user approval:
+
+- Store secrets, tokens, account caches, cookies, credentials, or login state in this repository.
+- Put generated runtime logs or transient outputs in the repository root.
+- Put real project execution results under `tools/`; use `data/` or `knowledge/traces/` according to the artifact type.
+- Put reusable SOPs in random locations; use `knowledge/flows/` unless the user specifies a different path.
+- Create new top-level directories unless the user confirms the architecture change.
+- Move, delete, or rewrite existing knowledge files without first checking references and explaining the impact.
+- Mix unrelated actions in one change, such as moving files while also rewriting tool behavior.
+
+## Verification
+
+For repository-level changes, run the smallest relevant verification command before reporting completion:
+
+```powershell
+npm run check
+```
+
+For GUI entry changes, also verify the launch command starts without immediate syntax/runtime failure:
+
+```powershell
+npm run gui
+```
+
+For PowerShell tool changes, run the specific script with a safe test path or dry-run equivalent when available.
+
+If verification cannot be completed, report the exact command, failure reason, and the smallest next step needed to finish validation.
+
 ## Task SOP
 
 - Before starting work in a project, check whether `.ai/current-state.md` and `.ai/decisions.md` exist.
@@ -55,7 +100,7 @@ Use the templates in `tools/init-project-memory/templates/` as the starting poin
 ## Scope
 
 - V1 only.
-- No agents.
-- No skills.
-- No worktree automation.
-- No multi-session tooling.
+- Local tools only unless explicitly added.
+- No secrets or account state.
+- No worktree automation by default.
+- No multi-session tooling unless implemented and documented under `tools/` and `knowledge/traces/`.

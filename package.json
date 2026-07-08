@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "gui": "node tools/ai-coding-console/gui/server.js"
+    "gui": "node tools/ai-coding-console/gui/server.js",
+    "start": "npm run gui",
+    "check": "node --check tools/ai-coding-console/gui/server.js && node --check tools/ai-coding-console/gui/app.js && node --check tools/ai-coding-console/lib/agent-adapters.js && node --check tools/ai-coding-console/lib/agent-runner-core.js && node --check tools/ai-coding-console/lib/capability-registry.js && node --check tools/ai-coding-console/lib/opencode-build-runner.js && node --check tools/ai-coding-console/lib/opencode-plan-runner.js && node --check tools/ai-coding-console/lib/run-store.js && node --check tools/ai-coding-console/lib/task-capability-binding.js && node --check tools/ai-coding-console/lib/task-prompt-builder.js && node --check tools/ai-coding-console/lib/task-sop-generator.js",
+    "test": "npm run check"
   }
 }
