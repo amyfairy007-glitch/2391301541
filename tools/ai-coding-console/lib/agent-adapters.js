@@ -55,16 +55,13 @@ function buildOpenCodeInvocation({ opencodePath, promptText, isCmdShim }) {
   // argument array — Node handles argument quoting, no cmd.exe, no shell.
   //
   // The prompt is passed as the positional `message` argument, NOT via
-  // `--file`. Empirically `opencode run --file <largePrompt>` hangs with zero
-  // output on a ~16KB prompt (probes P7/P8), while passing the same content as
-  // the message argument succeeds reliably, including at 32KB (probes
-  // P9/P10/P11). Because we spawn with shell:false, the message is a single
-  // argv entry and is not subject to the cmd.exe 8191-char command-line limit.
+  // `--file`. This OpenCode build's `run --help` shows neither `--file` nor
+  // `--format`; passing unsupported flags makes the CLI print help and exit(1).
+  // Because we spawn with shell:false, the message is a single argv entry and
+  // is not subject to the cmd.exe 8191-char command-line limit.
   const args = [
     "run",
-    promptText,
-    "--format",
-    "json"
+    promptText
   ];
 
   return {
@@ -76,9 +73,7 @@ function buildOpenCodeInvocation({ opencodePath, promptText, isCmdShim }) {
     commandLine: [
       quoteWindowsArg(opencodePath),
       "run",
-      "<prompt message, " + String(promptText || "").length + " chars>",
-      "--format",
-      "json"
+      "<prompt message, " + String(promptText || "").length + " chars>"
     ].join(" ")
   };
 }
