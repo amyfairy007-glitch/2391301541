@@ -56,6 +56,7 @@ If verification cannot be completed, report the exact command, failure reason, a
 
 ## Task SOP
 
+- Before reading other project documents in this repository, first read `.ai/AI_CONTEXT.md` as the shared AI context entry.
 - Before starting work in a project, check whether `.ai/current-state.md` and `.ai/decisions.md` exist.
 - Before starting work in a project, check whether `.ai/business-context.md` exists.
 - If those files exist, read them before proposing or making changes.
@@ -66,6 +67,25 @@ If verification cannot be completed, report the exact command, failure reason, a
 - Keep changes scoped to the task and aligned with the current recorded project state.
 - Treat `.ai/business-context.md` as the durable reasoning layer for goals, constraints, tradeoffs, terminology, and stable project-specific knowledge.
 - Keep reusable project-specific knowledge in project memory, and consult relevant project knowledge files when the current task touches a similar module, flow, board, or interaction.
+
+## Unified AI Context Loading
+
+- Treat `.ai/AI_CONTEXT.md` as the shared project context entry for all agents entering this repository.
+- After reading `.ai/AI_CONTEXT.md`, load additional directories only as needed for the current task.
+- Read `skills/`, `sops/`, `guides/`, `knowledge/`, and `tools/` only when they are relevant to the current task and actually exist in the repository.
+- Do not default to loading every knowledge or tool directory up front.
+- Historical files under `.ai/handoffs/` are reference material only; do not automatically treat them as the current requirement or current task state.
+- Do not bulk-read `.ai/handoffs/` by default. Only read task-relevant handoffs by keyword when the work requires historical design background, migration context, unfinished work, implementation rationale, or document-conflict tracing.
+- Treat handoffs as historical evidence, not as the current requirement. If a handoff conflicts with `.ai/current-state.md` or `.ai/decisions.md`, report the conflict first.
+- If existing documents conflict, report the conflict first and do not silently choose one version or rewrite facts on your own.
+
+## Language And Output
+
+- Default to Chinese for replies and for generated documents, plans, reports, SOPs, guides, handoffs, code review results, and validation results.
+- Do not translate code, commands, file paths, file names, config fields, class names, function names, API names, product names, protocol names, or other required proper terms.
+- When an English term must be kept, prefer `中文说明（English Name）`.
+- Use English only when the task explicitly requires English output.
+- Do not rename code identifiers or existing interfaces just to make them Chinese.
 
 ## Project Memory Discipline
 

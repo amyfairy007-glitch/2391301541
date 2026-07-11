@@ -37,6 +37,14 @@ const state = {
   activeAppSection: "projects",
   workspacePreviewMode: "",
   moreMenuOpen: false,
+  createProjectOpen: false,
+  createProjectPath: "",
+  createProjectDisplayName: "",
+  createProjectInitAiMemory: false,
+  createProjectChecking: false,
+  createProjectSubmitting: false,
+  createProjectCheckResult: null,
+  createProjectError: "",
   createTaskOpen: false,
   createTaskDesc: "",
   promptDraft: "",
@@ -818,6 +826,97 @@ function handleAppRail(section) {
   render();
 }
 
+function openCreateProjectModal() {
+  state.createProjectOpen = true;
+  state.createProjectPath = "";
+  state.createProjectDisplayName = "";
+  state.createProjectInitAiMemory = false;
+  state.createProjectChecking = false;
+  state.createProjectSubmitting = false;
+  state.createProjectCheckResult = null;
+  state.createProjectError = "";
+  render();
+}
+
+function setCreateProjectPath(value) {
+  state.createProjectPath = value;
+  state.createProjectCheckResult = null;
+  state.createProjectError = "";
+}
+
+function setCreateProjectDisplayName(value) {
+  state.createProjectDisplayName = value;
+  state.createProjectCheckResult = null;
+  state.createProjectError = "";
+}
+
+function setCreateProjectInitAiMemory(checked) {
+  state.createProjectInitAiMemory = Boolean(checked);
+}
+
+async function checkCreateProject() {
+  const rootPath = state.createProjectPath.trim();
+  if (!rootPath) {
+    state.createProjectError = "请先输入项目路径。";
+    render();
+    return;
+  }
+
+  state.createProjectChecking = true;
+  state.createProjectError = "";
+  render();
+  try {
+    const result = await apiPost("/api/projects/check", {
+      rootPath,
+      displayName: state.createProjectDisplayName.trim()
+    });
+    state.createProjectCheckResult = result;
+    state.createProjectError = "";
+  } catch (error) {
+    state.createProjectCheckResult = null;
+    state.createProjectError = error.message;
+  } finally {
+    state.createProjectChecking = false;
+    render();
+  }
+}
+
+async function submitCreateProject() {
+  const rootPath = state.createProjectPath.trim();
+  if (!rootPath) {
+    state.createProjectError = "请先输入项目路径。";
+    render();
+    return;
+  }
+
+  state.createProjectSubmitting = true;
+  state.createProjectError = "";
+  render();
+  try {
+    const result = await apiPost("/api/projects/create", {
+      rootPath,
+      displayName: state.createProjectDisplayName.trim(),
+      initializeAiMemory: state.createProjectInitAiMemory
+    });
+    const projectId = result.project?.id || result.inspection?.projectId || "";
+    closeModal();
+    setBanner("success", "项目已创建，正在刷新项目列表。");
+    await loadProjects();
+    if (projectId) {
+      await selectContext(projectId);
+      setHash(projectId);
+    } else {
+      render();
+    }
+  } catch (error) {
+    state.createProjectError = error.message;
+    setBanner("error", `创建项目失败：${error.message}`);
+    render();
+  } finally {
+    state.createProjectSubmitting = false;
+  }
+}
+
 function openCreateTaskModal() {
   state.createTaskOpen = true;
   state.createTaskDesc = "";
@@ -825,6 +924,7 @@ function openCreateTaskModal() {
 }
 
 function closeModal() {
+  state.createProjectOpen = false;
   state.createTaskOpen = false;
   render();
 }
@@ -1078,12 +1178,7 @@ async function handleRoute() {
 
 function renderAppRail() {
   const items = [
-    { key: "projects", label: "项目", icon: "⌂", hint: "当前阶段可用" },
-    { key: "capability", label: "能力", icon: "◈", hint: "当前阶段暂未开放" },
-    { key: "workflow", label: "Task / 工作流", icon: "▤", hint: "当前阶段暂未开放" },
-    { key: "artifact", label: "产物", icon: "▣", hint: "当前阶段暂未开放" },
-    { key: "docs", label: "文档", icon: "▦", hint: "当前阶段暂未开放" },
-    { key: "settings", label: "设置", icon: "⚙", hint: "当前阶段暂未开放" }
+    { key: "projects", label: "项目", icon: "⌂", hint: "当前阶段可用" }
   ];
 
   return `
@@ -1132,7 +1227,6 @@ function renderProjectRail() {
             <span class="project-meta">
               <strong>${escapeHTML(item.displayName || item.id)}</strong>
               <small>${escapeHTML(item.rootPath || status)}</small>
-              ${active ? `<button class="project-detail-inline" onclick="event.stopPropagation();window.consoleWorkbench.toggleProjectDrawer()">项目详情 →</button>` : ""}
             </span>
             ${active ? `<span class="project-badge">当前项目</span>` : ""}
           </div>
@@ -1148,8 +1242,7 @@ function renderProjectRail() {
           <h2>项目</h2>
         </div>
         <div class="rail-header-actions">
-          ${state.projectRailCollapsed ? "" : `<button class="mini-btn" onclick="window.consoleWorkbench.showBannerNotice()" title="新建项目">+ 新建项目</button>`}
-          <button class="icon-btn" onclick="window.consoleWorkbench.toggleProjectRail()" title="${state.projectRailCollapsed ? "展开项目栏" : "折叠项目栏"}" aria-label="${state.projectRailCollapsed ? "展开项目栏" : "折叠项目栏"}">${state.projectRailCollapsed ? "»" : "«"}</button>
+          ${state.projectRailCollapsed ? "" : `<button class="mini-btn" onclick="window.consoleWorkbench.openCreateProjectModal()" title="新建项目">+ 新建项目</button>`}
         </div>
       </div>
       <div class="rail-body">
@@ -1242,14 +1335,12 @@ function renderTaskRail() {
           <span class="rail-kicker">Task</span>
           <h2>当前项目 Task</h2>
         </div>
-        <button class="icon-btn" onclick="window.consoleWorkbench.toggleTaskRail()" title="收窄 / 展开">${state.taskRailCollapsed ? "»" : "«"}</button>
       </div>
       <div class="rail-body">
         ${state.taskRailCollapsed ? "" : `
           <div class="task-rail-top">
             <div class="task-rail-toolbar">
               <button class="primary-btn" onclick="window.consoleWorkbench.openCreateTaskModal()">+ 新建任务</button>
-              ${renderTaskStatusFilter()}
             </div>
           </div>
         `}
@@ -1261,17 +1352,7 @@ function renderTaskRail() {
 }
 
 function renderMoreMenu() {
-  if (!state.moreMenuOpen) return "";
-  return `
-    <div class="more-menu" onclick="event.stopPropagation()">
-      <button onclick="window.consoleWorkbench.toggleProjectDrawer()">项目详情</button>
-      <button onclick="window.consoleWorkbench.refreshCurrentContext()">刷新</button>
-      <div class="more-menu-divider"></div>
-      <button onclick="window.consoleWorkbench.setWorkspacePreviewMode('sop')">预览工作区示例</button>
-      <button onclick="window.consoleWorkbench.setWorkspacePreviewMode('run')">预览执行完成示例</button>
-      <button onclick="window.consoleWorkbench.clearWorkspacePreviewMode()">关闭示例预览</button>
-    </div>
-  `;
+  return "";
 }
 
 function renderContextStrip() {
@@ -1299,10 +1380,7 @@ function renderContextStrip() {
         <div class="info-pill"><em>Agent</em><strong>${task?.currentAgent ? escapeHTML(task.currentAgent) : "未选择"}</strong></div>
         <div class="info-pill"><em>Git</em><strong>${escapeHTML(gitText)}</strong></div>
       </div>
-      <div class="context-actions">
-        <button class="ghost-btn" onclick="window.consoleWorkbench.toggleMoreMenu()">更多操作 ▾</button>
-        ${renderMoreMenu()}
-      </div>
+      <div class="context-actions"></div>
     </section>
   `;
 }
@@ -1323,7 +1401,6 @@ function renderOnboardingPanel(project) {
           <p>从一句想法开始，例如“我想梳理这个项目结构……”。创建真实 Task 后，这里会进入任务工作流，而不是空白控制台。</p>
           <div class="button-row">
             <button class="primary-btn" onclick="window.consoleWorkbench.openCreateTaskModal()">+ 新建任务</button>
-            <button class="ghost-btn" onclick="window.consoleWorkbench.toggleProjectDrawer()">项目详情</button>
           </div>
         </div>
       </div>
@@ -1484,7 +1561,6 @@ function renderRealWorkbench(task) {
           <h3>${escapeHTML(task.title)}</h3>
           <span class="helper-text">${escapeHTML(description ? shortText(description, 60) : "完成 Capability、Prompt、SOP 与 Agent 接入准备，验证自动化流程可用性")}</span>
         </div>
-        <button class="primary-btn" onclick="window.consoleWorkbench.executePrimaryAction()">⚡ ${escapeHTML(model.buttonLabel)}</button>
       </div>
       <div class="panel-body">
         ${renderProgressStepper(task)}
@@ -1516,7 +1592,6 @@ function renderRealWorkbench(task) {
             <strong>下一步建议</strong>
             <span>${escapeHTML(task.nextStep || model.nextStep)}</span>
           </div>
-          <button class="primary-btn" onclick="window.consoleWorkbench.executePrimaryAction()">${escapeHTML(model.buttonLabel)}</button>
         </div>
 
         <div>
@@ -2099,28 +2174,26 @@ function renderTabs() {
     `;
   }
 
-  const tabs = [
-    ["workbench", "工作区"],
-    ["prompt", "Prompt 与 SOP"],
-    ["agent", "Agent 输出"],
-    ["artifact", "产物"],
-    ["approvals", "审批记录"]
+  const tabItems = [
+    { key: "workbench", label: "工作台" },
+    { key: "agent", label: "Agent 输出" }
   ];
-
-  const tabButtons = tabs.map(([key, label]) => `
-    <button class="tab-btn ${state.activeTab === key ? "active" : ""}" onclick="window.consoleWorkbench.setTab(${escapeHTML(JSON.stringify(key))})">${escapeHTML(label)}</button>
-  `).join("");
-
-  let tabContent = renderWorkspaceTab();
-  if (state.activeTab === "prompt") tabContent = renderPromptTab();
-  if (state.activeTab === "agent") tabContent = renderAgentTab();
-  if (state.activeTab === "artifact") tabContent = renderArtifactTab();
-  if (state.activeTab === "approvals") tabContent = renderApprovalsTab();
+  const tabStrip = `
+    <div class="tab-strip">
+      ${tabItems.map(t => `
+        <button class="tab-btn ${state.activeTab === t.key ? "active" : ""}"
+                onclick="window.consoleWorkbench.setTab('${t.key}')">
+          ${t.label}
+        </button>
+      `).join("")}
+    </div>
+  `;
 
   return `
-    ${state.workspacePreviewMode ? `<div class="demo-banner">示例预览，不会写入真实 Task 数据。</div>` : ""}
-    <div class="tab-strip">${tabButtons}</div>
-    <div class="tab-content">${tabContent}</div>
+    ${tabStrip}
+    <div class="tab-content">
+      ${state.activeTab === "agent" ? renderAgentOutputTab() : renderWorkspaceTab()}
+    </div>
   `;
 }
 
@@ -2163,7 +2236,57 @@ function renderProjectDrawer() {
   `;
 }
 
-function renderModal() {
+function renderCreateProjectCheckResult() {
+  const result = state.createProjectCheckResult;
+  if (!result) return "";
+  const statusText = result.alreadyRegistered
+    ? `已登记为 ${result.registeredProjectId}`
+    : (result.idConflict ? "项目 ID 冲突" : "可以登记");
+  return `
+    <div class="detail-grid">
+      <div class="detail-card"><span>项目 ID</span><strong>${escapeHTML(result.projectId || "N/A")}</strong></div>
+      <div class="detail-card"><span>状态</span><strong>${escapeHTML(statusText)}</strong></div>
+      <div class="detail-card"><span>Git</span><strong>${result.hasGit ? "已检测到" : "未检测到"}</strong></div>
+      <div class="detail-card"><span>.ai 记忆</span><strong>${result.hasAiMemory ? "已存在" : "未初始化"}</strong></div>
+      <div class="detail-card"><span>AGENTS.md</span><strong>${result.hasAgentsMd ? "已存在" : "未检测到"}</strong></div>
+      <div class="detail-card"><span>Git Remote</span><strong>${escapeHTML(result.gitRemote || "N/A")}</strong></div>
+    </div>
+  `;
+}
+
+function renderCreateProjectModal() {
+  if (!state.createProjectOpen) return "";
+  const canSubmit = state.createProjectPath.trim() && !state.createProjectSubmitting;
+  return `
+    <div class="modal-mask" onclick="window.consoleWorkbench.closeModal()"></div>
+    <div class="modal-panel" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <h3>新建项目</h3>
+        <button class="icon-btn" onclick="window.consoleWorkbench.closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <label>项目路径</label>
+        <input class="project-search" type="text" value="${escapeHTML(state.createProjectPath)}" oninput="window.consoleWorkbench.setCreateProjectPath(this.value)" placeholder="例如：E:\\program\\my-project">
+        <label>显示名称（可选）</label>
+        <input class="project-search" type="text" value="${escapeHTML(state.createProjectDisplayName)}" oninput="window.consoleWorkbench.setCreateProjectDisplayName(this.value)" placeholder="默认使用目录名">
+        <label class="capability-check" style="gap:8px;align-items:center">
+          <input type="checkbox" ${state.createProjectInitAiMemory ? "checked" : ""} onchange="window.consoleWorkbench.setCreateProjectInitAiMemory(this.checked)">
+          <span>如果目标项目没有 .ai/，初始化项目记忆</span>
+        </label>
+        <div class="helper-text">V1 会登记一个已存在的本地项目目录；只有勾选初始化时，才会写入目标项目的 .ai/ 目录。</div>
+        ${state.createProjectError ? `<div class="error-banner">${escapeHTML(state.createProjectError)}</div>` : ""}
+        ${renderCreateProjectCheckResult()}
+      </div>
+      <div class="modal-actions">
+        <button class="ghost-btn" onclick="window.consoleWorkbench.checkCreateProject()" ${state.createProjectChecking ? "disabled" : ""}>${state.createProjectChecking ? "检测中..." : "检测项目"}</button>
+        <button class="ghost-btn" onclick="window.consoleWorkbench.closeModal()">取消</button>
+        <button class="primary-btn" onclick="window.consoleWorkbench.submitCreateProject()" ${canSubmit ? "" : "disabled"}>${state.createProjectSubmitting ? "创建中..." : "创建项目"}</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderCreateTaskModal() {
   if (!state.createTaskOpen) return "";
   return `
     <div class="modal-mask" onclick="window.consoleWorkbench.closeModal()"></div>
@@ -2183,6 +2306,10 @@ function renderModal() {
       </div>
     </div>
   `;
+}
+
+function renderModal() {
+  return `${renderCreateProjectModal()}${renderCreateTaskModal()}`;
 }
 
 function renderBanner() {
@@ -2304,6 +2431,12 @@ const consoleWorkbench = {
   toggleCapabilitySelection,
   toggleCapabilityExpanded,
   setTab,
+  openCreateProjectModal,
+  setCreateProjectPath,
+  setCreateProjectDisplayName,
+  setCreateProjectInitAiMemory,
+  checkCreateProject,
+  submitCreateProject,
   openCreateTaskModal,
   closeModal,
   setCreateTaskDesc,
@@ -2536,6 +2669,15 @@ function renderRunDetailView() {
       </div>
       <div class="artifact-list">
         <pre class="prompt-preview final-prompt-preview">${escapeHTML(run.plan || "Plan markdown is empty.")}</pre>
+      </div>
+    </section>
+    <section class="artifact-group">
+      <div class="artifact-group-head">
+        <strong>Prompt (prompt.md)</strong>
+        <span>${escapeHTML((run.prompt || "").length ? `${run.prompt.length} chars` : "empty")}</span>
+      </div>
+      <div class="artifact-list">
+        <pre class="prompt-preview final-prompt-preview">${escapeHTML(run.prompt || "No prompt captured.")}</pre>
       </div>
     </section>
     <section class="artifact-group">
@@ -2792,6 +2934,71 @@ function renderAgentTab() {
           <div class="empty-state roomy">
             <strong>尚未生成正式 Run</strong>
             <span>先在 Prompt 与 SOP Tab 生成 Final Prompt，再使用 OpenCode 启动 Plan Run。</span>
+          </div>
+        `}
+      </div>
+    </section>
+  `;
+}
+
+function renderAgentOutputTab() {
+  const runs = Array.isArray(state.planRuns) ? state.planRuns : [];
+  return `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <span class="panel-kicker">Plan Run</span>
+          <h3>Agent 执行 — OpenCode</h3>
+        </div>
+        <div class="panel-actions">
+          <button class="ghost-btn" onclick="window.consoleWorkbench.loadPlanRuns()">刷新 Run 列表</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="summary-card wide">
+          <span>当前 Agent</span>
+          <p>OpenCode（已就绪）</p>
+        </div>
+        ${renderPlanRunLauncher()}
+        ${state.planRunLoading ? `<div class="empty-state roomy"><strong>正在加载 Run ...</strong><span>请稍候。</span></div>` : ""}
+        ${state.planRunError ? `<div class="error-banner">${escapeHTML(state.planRunError)}</div>` : ""}
+        ${runs.length ? `
+          <div class="grid-two">
+            <div class="artifact-group">
+              <div class="artifact-group-head">
+                <strong>Run 列表</strong>
+                <span>${escapeHTML(String(runs.length))}</span>
+              </div>
+              <div class="artifact-list">
+                ${runs.map((run) => `
+                  <button class="task-card ${state.selectedRunId === run.runId ? "active" : ""}" onclick="window.consoleWorkbench.loadPlanRunDetail(${escapeHTML(JSON.stringify(run.runId))})">
+                    <div class="task-card-head">
+                      <strong>${escapeHTML(run.runId)}</strong>
+                      <span class="status-tag">${escapeHTML(runStatusLabel(run.status))}</span>
+                    </div>
+                    <div class="task-card-body">
+                      <span>${escapeHTML(formatIso(run.startedAt || run.createdAt))}</span>
+                      <span>Exit: ${run.exitCode === null || run.exitCode === undefined ? "n/a" : escapeHTML(String(run.exitCode))}</span>
+                      <span>${escapeHTML(run.failureReason || run.approvalStatus || "")}</span>
+                    </div>
+                  </button>
+                `).join("")}
+              </div>
+            </div>
+            <div class="artifact-group">
+              <div class="artifact-group-head">
+                <strong>Run 详情</strong>
+                <span>${escapeHTML(state.selectedRunDetail?.run?.runId || state.selectedRunId || "未选择")}</span>
+              </div>
+              <div class="artifact-list">
+                ${renderRunDetailView()}
+              </div>
+            </div>
+          </div>
+        ` : `
+          <div class="empty-state roomy">
+            <strong>尚未运行</strong>
+            <span>先生成 Final Prompt，然后点击上方按钮启动 OpenCode Plan Run。</span>
           </div>
         `}
       </div>

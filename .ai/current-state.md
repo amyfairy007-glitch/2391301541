@@ -8,7 +8,7 @@
 
 ## Last Updated
 
-- 2026-07-08
+- 2026-07-11
 
 ## Next Step (archived — superseded by the Stage D section below)
 
@@ -32,7 +32,67 @@
 - NOT YET VALIDATED: real OpenCode `opencode.cmd` execution for Plan/Build. The Codex sandbox cannot represent the user's real permission context. Manual validation from a real terminal (`npm run gui`) is required — see `knowledge/traces/ai-coding-console-stage-d-full-result.md`.
 - Self-test passed in sandbox: `node --check` on all changed files, module load + exports, adapter availability (opencode true / codex false), build/plan run-id validation, and the build gate correctly rejecting a non-approved task with `build_gate_not_open`.
 
+## Root Directory Cleanup (2026-07-09)
+
+- Root-level GUI logs were moved to `data/ai-coding-console/logs/`: `gui-c6b.log`, `gui-start.log`, `gui-out.log`, and `gui-err.log`.
+- The mistakenly generated empty root directory `programai-ui-agentic/` was deleted after confirming it contained no files.
+- Formal cleanup record: `knowledge/traces/root-directory-cleanup-2026-07-09.md`.
+
+## Web Operation Area Simplification (2026-07-09)
+
+- The Web UI operation surface was simplified in `tools/ai-coding-console/gui/app.js` so only `+ 新建项目` and `+ 新建任务` remain visible as primary action entries.
+- Hidden visible operation areas include disabled app rail entries, Task status filter, project detail inline action, rail collapse buttons, context `更多操作`, workspace primary action buttons, and the tab strip for Prompt/SOP, Agent, Artifact, and Approval panels.
+- Formal result record: `knowledge/traces/web-operation-area-minimal-actions-2026-07-09.md`.
+- `npm run check` passed after the change.
+
+## Web 新建项目设计文档 (2026-07-09)
+
+- Created the full front-end/back-end design for Web `+ 新建项目` at `docs/new-project-web-design-2026-07-09.md`.
+- V1 scope is defined as registering an existing local project directory from Web, not creating a new source directory from scratch.
+- The design covers UI flow, proposed `POST /api/projects/check` and `POST /api/projects/create`, manifest persistence, validation, safety boundaries, error handling, implementation steps, and verification.
+
+## Web 新建项目实现 (2026-07-10)
+
+- Implemented Web `+ 新建项目` in `tools/ai-coding-console/gui/app.js` and `tools/ai-coding-console/gui/server.js`.
+- Added non-interactive `POST /api/projects/check` and `POST /api/projects/create` flows for registering existing local project directories.
+- The Web modal now supports path input, optional display name, optional `.ai/` initialization, project detection, create submission, project list refresh, and auto-selecting the new project.
+- Formal implementation record: `knowledge/traces/web-new-project-implementation-2026-07-10.md`.
+- `npm run check` passed, and interface-level tests passed for check/create/missing-path/duplicate-path scenarios.
+
 ## Next Step
 
+- Verify how OpenCode actually auto-loads project-level instructions beyond the already documented `AGENTS.md` path, if a stronger project-local mechanism is needed later.
+- Keep `.ai/AI_CONTEXT.md` as the single shared AI context entry and avoid copying the same project knowledge into agent-specific files.
+- Run `npm run gui` and manually validate the `+ 新建项目` button in the browser with an independent test project directory.
+- After UI validation, verify `+ 新建任务` under the newly registered project creates the expected Task data.
 - User to run the manual end-to-end validation on a clean, separate test project (not this repo) and report whether Plan/Build reach `completed` and whether Build truly modifies files.
-- After validation, proceed to the UI alignment pass (top context strip single-row收敛 + Prompt tab 阶段总览区).
+
+## Unified AI Context Entry (2026-07-11)
+
+- Added `.ai/AI_CONTEXT.md` as the shared project context entry intended for Codex, Claude Code, OpenCode, and similar agents.
+- Updated root `AGENTS.md` so agents read `.ai/AI_CONTEXT.md` first, then load `skills/`, `sops/`, `guides/`, `knowledge/`, and `tools/` only on demand and only when those directories actually exist.
+- Added root `CLAUDE.md` as a lightweight Claude Code entry file that points to `.ai/AI_CONTEXT.md` without duplicating project knowledge.
+- Confirmed `.claude/launch.json` and `.claude/settings.local.json` are local Claude-side files, not the shared project knowledge entry.
+- Did not add a guessed OpenCode-specific file. Current confirmed project-level shared entry remains `AGENTS.md`; any stronger OpenCode auto-load mechanism still needs confirmation.
+
+## Handoff Loading Rule Tightening (2026-07-12)
+
+- Root `AGENTS.md` now explicitly forbids default bulk reads of `.ai/handoffs/`.
+- Handoffs must now be read only by task-relevant keyword when the work needs historical design background, migration context, unfinished work, implementation rationale, or conflict tracing.
+- The root rule now explicitly says handoffs are historical evidence, not current requirements, and any conflict with `.ai/current-state.md` or `.ai/decisions.md` must be reported first.
+- No code or handoff files were changed for this rule tightening.
+
+## Chinese Output Governance (2026-07-12)
+
+- Root `AGENTS.md` now defines one shared Chinese-first output rule for Codex, OpenCode, Claude Code, and similar agents.
+- The default output language is Chinese for replies and for generated documents, plans, reports, SOPs, guides, handoffs, code review results, and validation results.
+- Code, commands, paths, filenames, config fields, identifiers, API names, product names, protocol names, and required English terms remain in their original form.
+- `.ai/AI_CONTEXT.md` now contains only a short language note, and `CLAUDE.md` remains a lightweight redirect entry without duplicating the full rule set.
+
+## OpenCode Plan Run Real Validation (2026-07-12)
+
+- Reviewed the real Plan Run chain without modifying code.
+- Confirmed `npm run check` passes and the runtime can resolve OpenCode to `C:\nvm4w\nodejs\node_modules\opencode-ai\bin\opencode.exe`.
+- Confirmed the currently registered project manifest contains only `ai-ui-agentic`, so there is no separate clean test project available for the required real validation.
+- Confirmed the existing task `T-20260705-002` has local artifacts, but it belongs to `ai-ui-agentic` and therefore is not a valid validation target for this task.
+- The next minimal step is to register a clean separate test project and create a dedicated test task before attempting the real Plan Run.

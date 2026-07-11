@@ -38,6 +38,9 @@
 ## Stable Project-Specific Conventions To Remember
 
 - Treat `.ai/current-state.md`, `.ai/decisions.md`, and `.ai/handoffs/` as mandatory project memory outputs after a task.
+- Treat `.ai/AI_CONTEXT.md` as the shared project context entry for all AI agents entering this repository. Agent-specific entry files should only point to it and should not duplicate project knowledge.
+- Treat `.ai/handoffs/` as a historical evidence store that must be searched on demand by task keyword or module, not bulk-read by default during new-session context loading.
+- Treat Chinese as the default collaboration and documentation language across agents in this repository, while preserving code identifiers, commands, paths, API names, and required English terms in their original form.
 - Keep formal analytical or planning conclusions in repository files, not only in chat.
 - Prefer small, reviewable changes and preserve the existing console architecture whenever possible.
 - C.6-C prompt generation is deterministic and offline: `sop.json`, `prompt-draft.md`, and `final-prompt.md` are built from the Task record, bound capabilities, AGENTS.md, and local templates.

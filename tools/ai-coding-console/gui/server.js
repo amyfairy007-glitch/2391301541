@@ -4,7 +4,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const { execFile } = require("child_process");
+const { execFile, execFileSync } = require("child_process");
 const {
   getCapabilityRegistryEntry,
   loadCapabilityRegistry
@@ -96,6 +96,224 @@ function sendError(res, msg, status) {
 function writeJSONFile(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + "\n", "utf8");
+}
+
+
+function normalizeProjectPathForCompare(value) {
+  return path.resolve(String(value || "")).replace(/[\\/]+$/, "").toLowerCase();
+}
+
+function sanitizeProjectId(name) {
+  return String(name || "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9_-]/g, "");
+}
+
+function loadProjectManifestSafe() {
+  if (!fs.existsSync(MANIFEST_PATH)) {
+    return { ok: true, manifest: { $schema: "个人AI工具库项目清单v1", lastUpdated: null, projects: {} } };
+  }
+  try {
+    const manifest = readJSON(MANIFEST_PATH) || {};
+    if (!manifest.projects || typeof manifest.projects !== "object" || Array.isArray(manifest.projects)) {
+      manifest.projects = {};
+    }
+    return { ok: true, manifest };
+  } catch (error) {
+    return { ok: false, error: "invalid_manifest_json", details: [error.message] };
+  }
+}
+
+function getGitField(projectPath, args) {
+  try {
+    return execFileSync("git", args, { cwd: projectPath, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function getProjectGitSummary(projectPath) {
+  const hasGit = fs.existsSync(path.join(projectPath, ".git"));
+  if (!hasGit) return { hasGit: false, gitRemote: null, gitBranch: null, gitDirty: null };
+  return {
+    hasGit: true,
+    gitRemote: getGitField(projectPath, ["remote", "get-url", "origin"]),
+    gitBranch: getGitField(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]),
+    gitDirty: Boolean(getGitField(projectPath, ["status", "--porcelain"]))
+  };
+}
+
+function projectResponseFromRecord(record, fallbackId) {
+  const summary = parseProjectStatus("", record);
+  return {
+    id: record.id || fallbackId,
+    displayName: record.displayName || record.displayname || fallbackId,
+    rootPath: record.rootPath || record.rootpath || "",
+    hasAiMemory: record.hasAiMemory || record.hasaimemory || false,
+    hasAgentsMd: record.hasAgentsMd || record.hasagentsmd || false,
+    gitRemote: record.gitRemote || record.gitremote || null,
+    addedAt: record.addedAt || record.addedat || "",
+    takeoverStatus: record.takeoverStatus || record.takeoverstatus || "unknown",
+    statusSummary: summary
+  };
+}
+
+function inspectProjectPath(rootPath, displayName) {
+  const rawPath = String(rootPath || "").trim();
+  const warnings = [];
+  if (!rawPath) {
+    return { ok: false, error: "path_required", details: ["rootPath is required"], warnings, errors: ["path_required"] };
+  }
+  if (/[*?<>|"]/.test(rawPath)) {
+    return { ok: false, error: "invalid_path", details: ["Path contains unsupported characters."], warnings, errors: ["invalid_path"] };
+  }
+
+  const normalizedPath = path.resolve(rawPath);
+  let stat = null;
+  try {
+    stat = fs.statSync(normalizedPath);
+  } catch {
+    return {
+      ok: false,
+      error: "path_not_found",
+      details: [normalizedPath],
+      normalizedPath,
+      exists: false,
+      isDirectory: false,
+      warnings,
+      errors: ["path_not_found"]
+    };
+  }
+  if (!stat.isDirectory()) {
+    return {
+      ok: false,
+      error: "path_not_directory",
+      details: [normalizedPath],
+      normalizedPath,
+      exists: true,
+      isDirectory: false,
+      warnings,
+      errors: ["path_not_directory"]
+    };
+  }
+
+  const manifestResult = loadProjectManifestSafe();
+  if (!manifestResult.ok) return manifestResult;
+  const manifest = manifestResult.manifest;
+  const projects = manifest.projects || {};
+  const dirName = path.basename(normalizedPath);
+  const projectId = sanitizeProjectId(dirName);
+  const resolvedDisplayName = String(displayName || "").trim() || dirName;
+  if (!projectId || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(projectId)) {
+    return { ok: false, error: "invalid_project_id", details: [dirName], normalizedPath, warnings, errors: ["invalid_project_id"] };
+  }
+
+  let alreadyRegistered = false;
+  let registeredProjectId = "";
+  const normalizedCompare = normalizeProjectPathForCompare(normalizedPath);
+  for (const [id, record] of Object.entries(projects)) {
+    const existingPath = record && (record.rootPath || record.rootpath);
+    if (existingPath && normalizeProjectPathForCompare(existingPath) === normalizedCompare) {
+      alreadyRegistered = true;
+      registeredProjectId = id;
+      break;
+    }
+  }
+  const idConflict = Boolean(projects[projectId] && !alreadyRegistered);
+  const git = getProjectGitSummary(normalizedPath);
+  if (!git.hasGit) warnings.push("missing_git");
+  const hasAiMemory = fs.existsSync(path.join(normalizedPath, ".ai"));
+  if (!hasAiMemory) warnings.push("missing_ai_memory");
+
+  return {
+    ok: !idConflict,
+    error: idConflict ? "project_id_conflict" : undefined,
+    details: idConflict ? [`Project ID already exists: ${projectId}`] : [],
+    normalizedPath,
+    projectId,
+    displayName: resolvedDisplayName,
+    exists: true,
+    isDirectory: true,
+    alreadyRegistered,
+    registeredProjectId,
+    idConflict,
+    hasGit: git.hasGit,
+    hasAiMemory,
+    hasAgentsMd: fs.existsSync(path.join(normalizedPath, "AGENTS.md")),
+    gitRemote: git.gitRemote,
+    gitBranch: git.gitBranch,
+    gitDirty: git.gitDirty,
+    warnings,
+    errors: idConflict ? ["project_id_conflict"] : []
+  };
+}
+
+function initializeAiMemory(projectPath) {
+  return new Promise((resolve) => {
+    execFile("powershell", [
+      "-ExecutionPolicy", "Bypass",
+      "-WindowStyle", "Hidden",
+      "-File", path.join(REPO_ROOT, "tools", "init-project-memory", "init-project-memory.ps1"),
+      "-ProjectPath", projectPath
+    ], { cwd: REPO_ROOT, timeout: 30000 }, (err, stdout, stderr) => {
+      if (err) {
+        resolve({ ok: false, output: stdout + "\n" + (stderr || err.message) });
+        return;
+      }
+      resolve({ ok: true, output: stdout });
+    });
+  });
+}
+
+async function createProjectRecord(rootPath, displayName, initializeAi) {
+  const inspection = inspectProjectPath(rootPath, displayName);
+  if (!inspection.ok) return inspection;
+  if (inspection.alreadyRegistered) {
+    return { ok: false, error: "project_already_registered", details: [inspection.registeredProjectId], inspection };
+  }
+
+  if (initializeAi && !inspection.hasAiMemory) {
+    const initResult = await initializeAiMemory(inspection.normalizedPath);
+    if (!initResult.ok) {
+      return { ok: false, error: "ai_memory_init_failed", details: [initResult.output], inspection };
+    }
+  }
+
+  const manifestResult = loadProjectManifestSafe();
+  if (!manifestResult.ok) return manifestResult;
+  const manifest = manifestResult.manifest;
+  const projects = manifest.projects || {};
+  const refreshed = inspectProjectPath(inspection.normalizedPath, inspection.displayName);
+  if (!refreshed.ok) return refreshed;
+
+  const now = new Date().toISOString();
+  const projectRecord = {
+    id: refreshed.projectId,
+    rootPath: refreshed.normalizedPath,
+    displayName: refreshed.displayName,
+    addedAt: now,
+    lastActivityAt: now,
+    gitRemote: refreshed.gitRemote,
+    hasAiMemory: refreshed.hasAiMemory,
+    hasAgentsMd: refreshed.hasAgentsMd,
+    takeoverStatus: "registered"
+  };
+
+  projects[refreshed.projectId] = projectRecord;
+  const nextManifest = {
+    $schema: manifest.$schema || "个人AI工具库项目清单v1",
+    lastUpdated: now,
+    projects
+  };
+
+  try {
+    writeJSONFile(MANIFEST_PATH, nextManifest);
+  } catch (error) {
+    return { ok: false, error: "manifest_write_failed", details: [error.message] };
+  }
+
+  return { ok: true, project: projectResponseFromRecord(projectRecord, refreshed.projectId), inspection: refreshed };
 }
 
 function persistRunningPlanRun(prepared) {
@@ -328,6 +546,42 @@ const server = http.createServer((req, res) => {
   }
 
   // === API ===
+
+  // POST /api/projects/check
+  if (p === "/api/projects/check" && m === "POST") {
+    let body = "";
+    req.on("data", d => body += d);
+    req.on("end", () => {
+      try {
+        const parsed = JSON.parse(body || "{}");
+        const result = inspectProjectPath(parsed.rootPath, parsed.displayName);
+        sendJSON(res, result, result.ok ? 200 : 400);
+      } catch (error) {
+        sendJSON(res, { error: "invalid_request_body", details: [error.message] }, 400);
+      }
+    });
+    return;
+  }
+
+  // POST /api/projects/create
+  if (p === "/api/projects/create" && m === "POST") {
+    let body = "";
+    req.on("data", d => body += d);
+    req.on("end", async () => {
+      try {
+        const parsed = JSON.parse(body || "{}");
+        const result = await createProjectRecord(parsed.rootPath, parsed.displayName, parsed.initializeAiMemory === true);
+        if (!result.ok) {
+          sendJSON(res, result, result.error === "project_already_registered" ? 409 : 400);
+          return;
+        }
+        sendJSON(res, result);
+      } catch (error) {
+        sendJSON(res, { error: "project_create_failed", details: [error.message] }, 500);
+      }
+    });
+    return;
+  }
 
   // GET /api/projects
   if (p === "/api/projects" && m === "GET") {
