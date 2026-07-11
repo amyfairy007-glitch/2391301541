@@ -36,22 +36,43 @@ function quoteWindowsArg(value) {
   return `"${text.replace(/"/g, '\\"')}"`;
 }
 
+// quoteWindowsCmdArg wraps a single argument for cmd.exe /c.
+// Uses "" (cmd.exe convention) for embedded double quotes.
+// Wraps in "..." when the value contains spaces or shell special chars.
+// Does not produce unbalanced or mismatched quotes.
+function quoteWindowsCmdArg(value) {
+  const text = String(value ?? "");
+  if (text.length === 0) return `""`;
+  const escaped = text.replace(/"/g, '""');
+  const needsQuoting = /[\s&|<>^%]/.test(text);
+  return needsQuoting ? `"${escaped}"` : escaped;
+}
+
 function terminalRunStatus(status) {
   return ["completed", "failed", "timed_out", "unsafe_modified"].includes(String(status || ""));
 }
 
 function runCommand(command, args, options) {
   return new Promise((resolve) => {
+    const useShell = options.useShell === true;
+    console.log("[runCommand]", JSON.stringify({
+      executable: command,
+      args,
+      cwd: options.cwd,
+      shell: useShell,
+      platform: process.platform
+    }));
+    // When shell is true, Node.js handles cmd.exe /d /s /c wrapping and
+    // argument quoting automatically.  When shell is false we set
+    // windowsVerbatimArguments so our manually constructed args (used by the
+    // legacy buildOpenCodePlanInvocation callers that pass cmd.exe directly)
+    // are not further re-escaped.
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       windowsHide: true,
-      shell: false,
-      // We pre-quote the cmd.exe command line ourselves (see
-      // buildOpenCodeInvocation). Without verbatim args, Node re-escapes the
-      // inner quotes with backslashes, which cmd.exe does not understand and
-      // which breaks the "C:\...\opencode.cmd" program token.
-      windowsVerbatimArguments: true,
+      shell: useShell,
+      windowsVerbatimArguments: !useShell,
       stdio: ["pipe", "pipe", "pipe"]
     });
 
@@ -339,6 +360,7 @@ module.exports = {
   ensureParentDir,
   writeJsonFile,
   quoteWindowsArg,
+  quoteWindowsCmdArg,
   terminalRunStatus,
   runCommand,
   runGit,

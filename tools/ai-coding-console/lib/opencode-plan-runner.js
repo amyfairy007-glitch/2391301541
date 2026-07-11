@@ -28,7 +28,8 @@ const {
   runGit,
   parseGitChangedFiles,
   buildGitSnapshot,
-  findStringByKey
+  findStringByKey,
+  quoteWindowsCmdArg
 } = require("./agent-runner-core");
 
 function resolveOpenCodeCmdCommand() {
@@ -76,18 +77,15 @@ function quoteForCmd(value) {
 
 function buildOpenCodePlanInvocation({ opencodePath, promptPath }) {
   const message = buildPlanRunMessage(promptPath);
-  const commandLine = [
-    quoteForCmd(opencodePath),
-    "run",
-    quoteForCmd(message)
-  ].join(" ");
+  const args = ["run", message];
+  const displayCmdLine = `${quoteWindowsCmdArg(opencodePath)} run <prompt, ${String(message).length} chars>`;
 
   return {
-    command: path.join(process.env.SystemRoot || "C:\\Windows", "System32", "cmd.exe"),
-    args: ["/d", "/s", "/c", commandLine],
-    commandLine,
+    command: opencodePath,
+    args,
+    commandLine: displayCmdLine,
     message,
-    useShell: false
+    useShell: true
   };
 }
 
@@ -373,10 +371,13 @@ async function prepareOpenCodePlanStart({ repoRoot, projectId, taskId, runId, re
     readOnlyEnforcement: "prompt_and_post_run_git_check",
     approvalStatus: "not_opened",
     diagnostics: {
-      command: invocation.command,
-      commandLine: invocation.commandLine,
+      resolvedCommand: invocation.command,
+      executable: invocation.command,
       args: invocation.args,
       cwd: projectRoot,
+      shell: Boolean(invocation.useShell),
+      platform: process.platform,
+      commandLine: invocation.commandLine,
       useShell: Boolean(invocation.useShell),
       inheritedUserEnv: true
     }
@@ -397,10 +398,11 @@ async function prepareOpenCodePlanStart({ repoRoot, projectId, taskId, runId, re
     pre: preSnapshot,
     post: null,
     opencode: {
-      command: invocation.command,
-      commandLine: invocation.commandLine,
+      resolvedCommand: invocation.command,
+      executable: invocation.command,
       args: invocation.args,
       cwd: projectRoot,
+      shell: Boolean(invocation.useShell),
       exitCode: null,
       signal: null,
       stderr: "",
@@ -645,10 +647,13 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
     readOnlyEnforcement: "prompt_and_post_run_git_check",
     approvalStatus,
     diagnostics: {
-      command,
-      commandLine: invocation.commandLine,
+      resolvedCommand: command,
+      executable: command,
       args,
       cwd: projectRoot,
+      shell: true,
+      platform: process.platform,
+      commandLine: invocation.commandLine,
       usesCmdExe: true,
       inheritedUserEnv: true
     }
@@ -671,9 +676,11 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
     pre: preSnapshot,
     post: postSnapshot,
     opencode: {
-      command,
+      resolvedCommand: command,
+      executable: command,
       args,
       cwd: projectRoot,
+      shell: true,
       exitCode: execResult.exitCode,
       signal: execResult.signal || null,
       stderr: stderrOutput || "",
