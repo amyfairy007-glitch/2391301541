@@ -180,9 +180,17 @@ async function prepareOpenCodeBuildStart({ repoRoot, projectId, taskId, runId, r
   }
 
   const preSnapshot = await captureGitSnapshot("pre", context.projectRoot);
-  // Note: unlike Plan, a Build run does NOT require a clean worktree gate here,
-  // because Build is expected to change files. We still record the baseline so
-  // the post-run diff is auditable.
+  if (String(preSnapshot.statusShort || "").trim()) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "project_worktree_not_clean",
+      reason: "build_requires_clean_worktree",
+      nextAction: "commit_or_stash_first",
+      changedFiles: preSnapshot.changedFiles,
+      details: ["Build Run requires a clean worktree. Commit or stash your changes first."]
+    };
+  }
 
   const promptPath = getRunPromptPath(repoRoot, taskId, runId);
   const rawOutputPath = getRunRawOutputPath(repoRoot, taskId, runId);

@@ -1,7 +1,19 @@
 ﻿{
     "$schema":  "涓汉AI宸ュ叿搴撻」鐩竻鍗?v1",
-    "lastUpdated":  "2026-07-05T07:33:31Z",
+    "lastUpdated":  "2026-07-12T01:46:00Z",
     "projects":  {
+                     "test-plan-run-validation": {
+                                                    "id":  "test-plan-run-validation",
+                                                    "hasAgentsMd":  false,
+                                                    "rootPath":  "E:\\program\\test-plan-run-validation",
+                                                    "takeoverStatus":  "registered",
+                                                    "hasAiMemory":  false,
+                                                    "addedAt":  "2026-07-12T01:46:00Z",
+                                                    "gitRemote":  null,
+                                                    "displayName":  "test-plan-run-validation",
+                                                    "lastActiveTaskId":  "T-20260712-001",
+                                                "lastActivityAt":  "2026-07-12T01:46:00Z"
+                                                  },
                      "ai-ui-agentic":  {
                                            "id":  "ai-ui-agentic",
                                            "hasAgentsMd":  true,

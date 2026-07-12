@@ -2492,6 +2492,7 @@ Object.assign(state, {
 });
 
 let planRunPollTimer = null;
+let planRunPollRetries = 0;
 
 function getCurrentFinalPrompt() {
   return state.promptSopData && state.promptSopData.finalPrompt ? String(state.promptSopData.finalPrompt) : "";
@@ -2534,6 +2535,7 @@ function clearPlanRunPoll() {
     clearTimeout(planRunPollTimer);
     planRunPollTimer = null;
   }
+  planRunPollRetries = 0;
 }
 
 function formatIso(value) {
@@ -2617,6 +2619,119 @@ function renderPlanRunSummaryCard(run) {
   `;
 }
 
+function stripAnsi(text) {
+  if (!text) return text;
+  return String(text)
+    .replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, "")
+    .replace(/\u001b\][^\u0007]*\u0007/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
+}
+
+function buildRunSummary(run, runRecord) {
+  const stdoutText = run.rawOutput || "";
+  const stderrText = run.baseline?.opencode?.stderr || "";
+  const rawCombined = stdoutText + "\n" + stderrText;
+  const cleanedLog = stripAnsi(rawCombined);
+
+  const hasPlan = Boolean(run.plan && run.plan.trim() && !run.plan.startsWith("# Plan extraction failed"));
+  const hasStderr = Boolean(stderrText.trim());
+  const workspaceDirty = Boolean(run.baseline?.post?.statusShort);
+  const isCompleted = String(runRecord.status || "").toLowerCase() === "completed";
+
+  const events = [];
+  const permRequested = /permission requested/i.test(cleanedLog);
+  const permAutoReject = /auto-rejecting/i.test(cleanedLog);
+  const permUserReject = /user rejected permission|rejected permission/i.test(cleanedLog);
+  const hasFailedMsg = /failed/i.test(cleanedLog) && !/auto-rejecting/i.test(cleanedLog);
+  const hasErrorMsg = /error[^s]/i.test(cleanedLog) && !/permission/i.test(cleanedLog);
+
+  const hasPermissionIssue = permRequested || permAutoReject || permUserReject;
+
+  let severity = "success";
+  let label = "已完成";
+
+  if (!isCompleted && String(runRecord.status || "").toLowerCase() === "failed") {
+    severity = "error";
+    label = "失败";
+  } else if (!isCompleted) {
+    severity = "error";
+    label = "失败";
+  } else if (hasPermissionIssue) {
+    severity = "warning";
+    label = "已完成，但存在警告";
+  } else if (workspaceDirty) {
+    severity = "warning";
+    label = "已完成，但存在警告";
+  } else if (!hasPlan) {
+    severity = "warning";
+    label = "已完成，但未生成有效 Plan";
+  }
+
+  const reasons = [];
+  let impact = "";
+  let suggestion = "";
+
+  if (permRequested && permAutoReject) {
+    const permTarget = cleanedLog.match(/\(([^)]+)\)/)?.[1] || "";
+    if (permTarget) {
+      reasons.push(`OpenCode 请求读取 ${permTarget}，但权限被自动拒绝`);
+    } else {
+      reasons.push("OpenCode 请求读取外部文件，但权限被自动拒绝");
+    }
+    impact = "Agent 可能没有完整读取输入";
+    suggestion = "检查 OpenCode 外部目录权限或调整 prompt.md 的读取方式";
+  } else if (permUserReject) {
+    reasons.push("用户拒绝 OpenCode 执行权限");
+    impact = "OpenCode 无法完成指定操作";
+    suggestion = "确认权限要求后重新运行";
+  } else if (hasErrorMsg) {
+    reasons.push("OpenCode 执行过程中出现错误");
+    impact = "可能影响 Plan 生成结果";
+    suggestion = "查看技术详情中的 stderr 日志";
+  } else if (!hasPlan) {
+    reasons.push("未从 OpenCode 输出中提取到有效 Plan");
+    impact = "可能因为权限限制或执行错误";
+    suggestion = "检查 stdout 和 stderr 日志";
+  } else if (workspaceDirty) {
+    reasons.push(`${run.baseline?.changedFiles?.length || 0} 个文件被修改`);
+    impact = "工作区与执行前不一致";
+    suggestion = "审阅变更内容，确认是否预期";
+  }
+
+  if (hasStderr && !hasPermissionIssue && !hasErrorMsg && !reasons.length) {
+    reasons.push("stderr 包含非空输出");
+    impact = "可能存在非关键问题";
+    suggestion = "展开技术详情查看 stderr";
+  }
+
+  return { severity, label, reasons, impact, suggestion, events };
+}
+
+function renderCollapsibleSection(label, content, highlight) {
+  const raw = content || "";
+  const clean = stripAnsi(raw);
+  const hasContent = Boolean(clean);
+  const body = hasContent
+    ? escapeHTML(clean)
+    : '<span class="text-muted">无内容</span>';
+  const badge = hasContent ? `${clean.length} chars` : "empty";
+  const hlClass = highlight && hasContent ? ' stderr-highlight' : '';
+  return `
+    <details class="artifact-group${hlClass}">
+      <summary class="artifact-group-head">
+        <strong>${escapeHTML(label)}</strong>
+        <span>${badge}</span>
+      </summary>
+      <div class="artifact-list">
+        <pre class="prompt-preview final-prompt-preview">${body}</pre>
+      </div>
+    </details>
+  `;
+}
+
 function renderRunDetailView() {
   const run = state.selectedRunDetail;
   if (!run) {
@@ -2629,8 +2744,25 @@ function renderRunDetailView() {
   }
 
   const runRecord = run.run || {};
+  const stderrText = run.baseline?.opencode?.stderr || "";
+  const summary = buildRunSummary(run, runRecord);
+
+  const sevClass = summary.severity === "error" ? "error" : summary.severity === "warning" ? "warn" : "success";
+  const summaryReasonHtml = summary.reasons.length
+    ? summary.reasons.map(r => `<div class="exec-reason">${escapeHTML(r)}</div>`).join("")
+    : "";
+  const summaryImpactHtml = summary.impact ? `<div class="exec-impact">影响：${escapeHTML(summary.impact)}</div>` : "";
+  const summarySuggestionHtml = summary.suggestion ? `<div class="exec-suggestion">建议：${escapeHTML(summary.suggestion)}</div>` : "";
 
   return `
+    <section class="exec-summary ${sevClass}">
+      <div class="exec-summary-head">
+        <strong class="exec-summary-label">${escapeHTML(summary.label)}</strong>
+      </div>
+      ${summaryReasonHtml}
+      ${summaryImpactHtml}
+      ${summarySuggestionHtml}
+    </section>
     <div class="grid-two">
       <section class="artifact-group">
         <div class="artifact-group-head">
@@ -2662,34 +2794,24 @@ function renderRunDetailView() {
         </div>
       </section>
     </div>
-    <section class="artifact-group">
-      <div class="artifact-group-head">
-        <strong>Plan Markdown</strong>
-        <span>${escapeHTML((run.plan || "").length ? `${run.plan.length} chars` : "empty")}</span>
-      </div>
+    <details class="artifact-group">
+      <summary class="artifact-group-head">
+        <strong>技术详情</strong>
+        <span>${escapeHTML([
+          run.plan ? "plan" : "",
+          run.prompt ? "prompt" : "",
+          run.rawOutput ? "stdout" : "",
+          stderrText ? "stderr" : ""
+        ].filter(Boolean).join(" · ") || "empty")}</span>
+      </summary>
       <div class="artifact-list">
-        <pre class="prompt-preview final-prompt-preview">${escapeHTML(run.plan || "Plan markdown is empty.")}</pre>
+        ${renderCollapsibleSection("Plan Markdown", run.plan)}
+        ${renderCollapsibleSection("Prompt (prompt.md)", run.prompt)}
+        ${renderCollapsibleSection("stdout (agent-raw.log)", run.rawOutput)}
+        ${renderCollapsibleSection("stderr (stderr.log)", stderrText, true)}
       </div>
-    </section>
-    <section class="artifact-group">
-      <div class="artifact-group-head">
-        <strong>Prompt (prompt.md)</strong>
-        <span>${escapeHTML((run.prompt || "").length ? `${run.prompt.length} chars` : "empty")}</span>
-      </div>
-      <div class="artifact-list">
-        <pre class="prompt-preview final-prompt-preview">${escapeHTML(run.prompt || "No prompt captured.")}</pre>
-      </div>
-    </section>
-    <section class="artifact-group">
-      <div class="artifact-group-head">
-        <strong>OpenCode 原始输出</strong>
-        <span>${escapeHTML((run.rawOutput || "").length ? `${run.rawOutput.length} chars` : "empty")}</span>
-      </div>
-      <div class="artifact-list">
-        <pre class="prompt-preview final-prompt-preview">${escapeHTML(run.rawOutput || "No raw output captured.")}</pre>
-      </div>
-    </section>
-    <div class="banner ${runRecord.status === "completed" ? "warn" : "error"}">${escapeHTML(planRunStatusMessage(runRecord))}</div>
+    </details>
+    <div class="banner ${sevClass}">${escapeHTML(summary.label)}</div>
   `;
 }
 
@@ -2751,11 +2873,33 @@ async function pollPlanRun(runId) {
   const status = detail?.run?.status || detail?.summary?.status || "";
 
   if (!detail) {
+    planRunPollRetries++;
+    if (planRunPollRetries < 3) {
+      const delay = planRunPollRetries * 1000;
+      state.planRunLaunching = true;
+      state.planRunNotice = `正在接收 OpenCode 输出...（重试 ${planRunPollRetries}/3）`;
+      render();
+      planRunPollTimer = setTimeout(() => {
+        pollPlanRun(runId).catch((error) => {
+          planRunPollRetries = 3;
+          state.planRunLaunching = false;
+          state.selectedRunDetail = null;
+          state.planRunError = "状态查询失败，请手动刷新";
+          setBanner("error", state.planRunError);
+          render();
+        });
+      }, delay);
+      return;
+    }
     state.planRunLaunching = false;
-    setBanner("error", state.planRunError || "Plan Run 状态查询失败。");
+    state.selectedRunDetail = null;
+    state.planRunError = "状态查询失败，请手动刷新";
+    setBanner("error", state.planRunError);
     render();
     return;
   }
+
+  planRunPollRetries = 0;
 
   state.planRunNotice = planRunStatusMessage(detail.run || detail.summary);
   if (isTerminalPlanRunStatus(status)) {
@@ -2772,8 +2916,10 @@ async function pollPlanRun(runId) {
   render();
   planRunPollTimer = setTimeout(() => {
     pollPlanRun(runId).catch((error) => {
+      planRunPollRetries = 3;
       state.planRunLaunching = false;
-      state.planRunError = error.message || "Plan Run 轮询失败";
+      state.selectedRunDetail = null;
+      state.planRunError = "状态查询失败，请手动刷新";
       setBanner("error", state.planRunError);
       render();
     });
@@ -2806,7 +2952,11 @@ async function startPlanRun() {
     );
     const runId = result.runId || result.run?.runId || "";
     state.selectedRunId = runId;
-    state.planRunNotice = "正在接收 OpenCode 输出...";
+    if (result.worktreeDirty) {
+      state.planRunNotice = "当前工作区有未提交修改，Plan 将以只读模式运行";
+    } else {
+      state.planRunNotice = "正在接收 OpenCode 输出...";
+    }
     await loadPlanRuns();
     if (runId) {
       await pollPlanRun(runId);

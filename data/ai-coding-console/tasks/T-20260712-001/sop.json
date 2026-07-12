@@ -1,0 +1,20 @@
+{
+  "taskId": "T-20260712-001",
+  "generatedAt": "2026-07-12T01:46:00Z",
+  "sourceCapabilityIds": ["skill-project-takeover"],
+  "status": "draft",
+  "stage": "D-1",
+  "allowAgentExecution": false,
+  "priorityOrder": ["system_stage_security", "task_scope", "bound_capability", "user_supplement"],
+  "steps": [
+    {
+      "id": "S1",
+      "title": "Read project structure",
+      "purpose": "Read the test project files to understand what exists.",
+      "inputs": ["project root"],
+      "expectedArtifacts": ["plan.md"],
+      "requiresApproval": false,
+      "status": "pending"
+    }
+  ]
+}

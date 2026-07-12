@@ -3,6 +3,11 @@
 ## Decision Log
 
 - Date: 2026-07-12
+  - Decision: Display an execution summary card at the top of Plan Run detail view that analyzes cleaned stdout+stderr for permission rejection, errors, and failures, instead of showing a generic status banner and raw collapsible sections.
+  - Why: Raw stderr with permission rejection messages was displayed as-is with a red highlight, but the status still showed "已完成" without explaining why the plan failed. Users needed actionable insight without reading raw terminal logs.
+  - Impact: The detail view now shows a color-coded summary (success/warning/error) with reason, impact, and suggestion at the top; raw prompt/stdout/stderr/plan are collapsed under "技术详情". `stripAnsi()` is applied to all displayed log content for readability.
+
+- Date: 2026-07-12
   - Decision: Do not execute the real OpenCode Plan Run on `ai-ui-agentic` itself; require a separate clean test project and a dedicated test task before the first true end-to-end validation.
   - Why: The current task explicitly forbids using the main repository as the Plan Run target, and the current manifest exposes no alternate registered project.
   - Impact: The current validation stops at environment and call-chain confirmation. The next concrete step is data/setup, not code refactor.

@@ -17,6 +17,9 @@ const {
 } = require("../lib/task-capability-binding");
 const { generateSop, loadTaskAndCapabilities, getStageConstraints } = require("../lib/task-sop-generator");
 const {
+  writeJsonFile: writeJSONFile
+} = require("../lib/agent-runner-core");
+const {
   generateRunId,
   loadTaskRuns,
   loadTaskRun,
@@ -91,11 +94,6 @@ function sendJSON(res, data, status) {
 
 function sendError(res, msg, status) {
   sendJSON(res, { error: msg }, status || 500);
-}
-
-function writeJSONFile(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + "\n", "utf8");
 }
 
 
@@ -1041,11 +1039,13 @@ const promptSopFinalizeMatch = p.match(/^\/api\/tasks\/([^/]+)\/([^/]+)\/prompt-
       sendJSON(res, {
         ok: true,
         runId,
+        worktreeDirty: Boolean(prepared.worktreeDirty),
         status: "running",
         run: prepared.runRecord,
         summary: {
           runId,
           status: "running",
+          worktreeDirty: Boolean(prepared.worktreeDirty),
           approvalStatus: prepared.runRecord.approvalStatus,
           exitCode: null,
           sessionRef: null,

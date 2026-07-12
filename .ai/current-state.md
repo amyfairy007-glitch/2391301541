@@ -96,3 +96,12 @@
 - Confirmed the currently registered project manifest contains only `ai-ui-agentic`, so there is no separate clean test project available for the required real validation.
 - Confirmed the existing task `T-20260705-002` has local artifacts, but it belongs to `ai-ui-agentic` and therefore is not a valid validation target for this task.
 - The next minimal step is to register a clean separate test project and create a dedicated test task before attempting the real Plan Run.
+
+## Plan Run Detail: Execution Summary + ANSI Cleanup (2026-07-12)
+
+- Added `stripAnsi()` to remove ANSI control sequences from displayed logs (SGR codes, OSC sequences, cursor controls).
+- Added `buildRunSummary()` that scans cleaned stdout+stderr for permission rejection, error, and failure events, and produces a structured summary with severity, label, reasons, impact, and suggestion.
+- Restructured `renderRunDetailView()`: execution summary card at top (with color-coded severity), metadata/safety grid below, and all raw items collapsible under "技术详情".
+- `renderCollapsibleSection()` now applies `stripAnsi()` so displayed logs are readable.
+- Detection confirmed: permission-requested + auto-rejecting case correctly produces "已完成，但存在警告" with the specific permission path in the reason message.
+- `npm run check` passed.

@@ -1,6 +1,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const crypto = require("crypto");
 const { spawn } = require("child_process");
 const { loadCapabilityRegistry } = require("./capability-registry");
 const { loadTaskCapabilityBinding, loadTaskRecord } = require("./task-capability-binding");
@@ -120,6 +121,23 @@ function extractPlanFromPlainStdout(rawOutput, rawOutputRelativePath) {
     "",
     "Inspect agent-raw.log for the original output."
   ].join("\n");
+}
+
+function computeFileHashes(projectRoot, changedFiles) {
+  const hashes = {};
+  for (const file of (changedFiles || [])) {
+    try {
+      const fullPath = path.resolve(projectRoot, file);
+      if (fs.existsSync(fullPath)) {
+        hashes[file] = crypto.createHash("sha256").update(fs.readFileSync(fullPath)).digest("hex").slice(0, 16);
+      } else {
+        hashes[file] = null;
+      }
+    } catch {
+      hashes[file] = null;
+    }
+  }
+  return hashes;
 }
 
 function buildPlanPrompt({
@@ -285,23 +303,7 @@ async function prepareOpenCodePlanStart({ repoRoot, projectId, taskId, runId, re
   const preBranch = await runGit(projectRoot, ["branch", "--show-current"]);
   const preSnapshot = buildGitSnapshot("pre", preStatus, preHead, preBranch);
 
-  if (String(preSnapshot.statusShort || "").trim()) {
-    return {
-      ok: false,
-      statusCode: 409,
-      error: "project_worktree_not_clean",
-      changedFiles: preSnapshot.changedFiles,
-      baseline: {
-        taskId,
-        runId,
-        projectId,
-        projectRoot,
-        pre: preSnapshot,
-        post: null,
-        safetyVerdict: "dirty_precondition"
-      }
-    };
-  }
+  const worktreeDirty = Boolean(String(preSnapshot.statusShort || "").trim());
 
   const projectRules = [];
   const taskRules = [];
@@ -411,8 +413,12 @@ async function prepareOpenCodePlanStart({ repoRoot, projectId, taskId, runId, re
     }
   };
 
+  runRecord.worktreeDirty = worktreeDirty;
+  baseline.worktreeDirty = worktreeDirty;
+
   return {
     ok: true,
+    worktreeDirty,
     runId,
     projectRoot,
     promptText,
@@ -559,20 +565,9 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
   const preHead = await runGit(projectRoot, ["rev-parse", "--short", "HEAD"]);
   const preBranch = await runGit(projectRoot, ["branch", "--show-current"]);
   const preSnapshot = buildGitSnapshot("pre", preStatus, preHead, preBranch);
-
-  if (String(preSnapshot.statusShort || "").trim()) {
-    return {
-      ok: false,
-      statusCode: 409,
-      error: "project_worktree_not_clean",
-      changedFiles: preSnapshot.changedFiles,
-      baseline: {
-        pre: preSnapshot,
-        post: null,
-        safetyVerdict: "dirty_precondition"
-      }
-    };
-  }
+  const preHashes = computeFileHashes(projectRoot, preSnapshot.changedFiles);
+  preSnapshot.fileHashes = preHashes;
+  const worktreeDirty = Boolean(String(preSnapshot.statusShort || "").trim());
 
   const invocation = buildOpenCodePlanInvocation({
     opencodePath: opencodeCommand.command,
@@ -602,7 +597,14 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
   const postHead = await runGit(projectRoot, ["rev-parse", "--short", "HEAD"]);
   const postBranch = await runGit(projectRoot, ["branch", "--show-current"]);
   const postSnapshot = buildGitSnapshot("post", postStatus, postHead, postBranch);
-  const trackedChangesDetected = Boolean(String(postSnapshot.statusShort || "").trim());
+  const postHashes = computeFileHashes(projectRoot, postSnapshot.changedFiles);
+  postSnapshot.fileHashes = postHashes;
+  const preSet = new Set(preSnapshot.changedFiles || []);
+  const postSet = new Set(postSnapshot.changedFiles || []);
+  const newChangedFiles = (postSnapshot.changedFiles || []).filter(f => !preSet.has(f));
+  const mutatedFiles = (preSnapshot.changedFiles || []).filter(f => postSet.has(f) && preHashes[f] !== postHashes[f]);
+  const restoredFiles = (preSnapshot.changedFiles || []).filter(f => !postSet.has(f));
+  const trackedChangesDetected = newChangedFiles.length > 0 || mutatedFiles.length > 0 || restoredFiles.length > 0;
 
   const streamWriteFailed = Boolean(execResult.streamWriteFailure);
   const safetyVerdict = trackedChangesDetected
@@ -656,7 +658,8 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
       commandLine: invocation.commandLine,
       usesCmdExe: true,
       inheritedUserEnv: true
-    }
+    },
+    worktreeDirty
   };
 
   const baseline = {
@@ -666,13 +669,17 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
     readOnlyEnforcement: "prompt_and_post_run_git_check",
     safetyVerdict,
     trackedChangesDetected,
-    changedFiles: postSnapshot.changedFiles,
+    changedFiles: newChangedFiles,
+    newChangedFiles,
+    mutatedFiles,
+    restoredFiles,
     timeoutMs,
     stdoutBytes: execResult.stdoutBytes || 0,
     stderrBytes: execResult.stderrBytes || 0,
     failureReason: streamWriteFailed
       ? "runner_output_temp_directory_missing"
       : (execResult.timedOut ? "timeout" : (execResult.error ? "spawn_error" : (execResult.exitCode === 0 ? null : "non_zero_exit"))),
+    worktreeDirty,
     pre: preSnapshot,
     post: postSnapshot,
     opencode: {
@@ -691,6 +698,7 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
 
   return {
     ok: true,
+    worktreeDirty,
     runRecord,
     promptText,
     rawOutput,
@@ -698,7 +706,10 @@ async function runOpenCodePlan({ repoRoot, projectId, taskId, runId, registryPat
     baseline,
     status,
     approvalStatus,
-    changedFiles: postSnapshot.changedFiles,
+    changedFiles: newChangedFiles,
+    newChangedFiles,
+    mutatedFiles,
+    restoredFiles,
     trackedChangesDetected,
     exitCode: execResult.exitCode,
     error: execResult.exitCode === 0 ? null : execResult.stderr || null

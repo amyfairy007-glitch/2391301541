@@ -27,8 +27,16 @@ function ensureParentDir(filePath) {
 }
 
 function writeJsonFile(filePath, value) {
-  ensureParentDir(filePath);
-  fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + "\n", "utf8");
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = filePath + "." + process.pid + "." + Math.random().toString(36).slice(2, 8) + ".tmp";
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", "utf8");
+    fs.renameSync(tmp, filePath);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch (e) { /* best-effort cleanup */ }
+    throw err;
+  }
 }
 
 function quoteWindowsArg(value) {
